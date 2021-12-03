@@ -100,7 +100,7 @@ async def test_get_triggers(
         config_entry_id=config_entry.entry_id,
         connections={(device_registry.CONNECTION_NETWORK_MAC, "12:34:56:AB:CD:EF")},
     )
-    entity_reg.async_get_or_create(
+    entry = entity_reg.async_get_or_create(
         DOMAIN,
         "test",
         "5678",
@@ -109,7 +109,7 @@ async def test_get_triggers(
     )
     if set_state:
         hass.states.async_set(
-            "alarm_control_panel.test_5678",
+            entry.entity_id,
             "attributes",
             {"supported_features": features_state},
         )
@@ -121,7 +121,7 @@ async def test_get_triggers(
             "domain": DOMAIN,
             "type": trigger,
             "device_id": device_entry.id,
-            "entity_id": f"{DOMAIN}.test_5678",
+            "entity_id": entry.id,
         }
         for trigger in expected_trigger_types
     ]
@@ -155,9 +155,11 @@ async def test_get_trigger_capabilities(hass, device_reg, entity_reg):
         }
 
 
-async def test_if_fires_on_state_change(hass, calls):
+async def test_if_fires_on_state_change(hass, entity_reg, calls):
     """Test for turn_on and turn_off triggers firing."""
-    hass.states.async_set("alarm_control_panel.entity", STATE_ALARM_PENDING)
+    entry = entity_reg.async_get_or_create(DOMAIN, "test", "5678")
+
+    hass.states.async_set(entry.entity_id, STATE_ALARM_PENDING)
 
     assert await async_setup_component(
         hass,
@@ -169,7 +171,7 @@ async def test_if_fires_on_state_change(hass, calls):
                         "platform": "device",
                         "domain": DOMAIN,
                         "device_id": "",
-                        "entity_id": "alarm_control_panel.entity",
+                        "entity_id": entry.id,
                         "type": "triggered",
                     },
                     "action": {
@@ -188,7 +190,7 @@ async def test_if_fires_on_state_change(hass, calls):
                         "platform": "device",
                         "domain": DOMAIN,
                         "device_id": "",
-                        "entity_id": "alarm_control_panel.entity",
+                        "entity_id": entry.id,
                         "type": "disarmed",
                     },
                     "action": {
@@ -207,7 +209,7 @@ async def test_if_fires_on_state_change(hass, calls):
                         "platform": "device",
                         "domain": DOMAIN,
                         "device_id": "",
-                        "entity_id": "alarm_control_panel.entity",
+                        "entity_id": entry.id,
                         "type": "armed_home",
                     },
                     "action": {
@@ -226,7 +228,7 @@ async def test_if_fires_on_state_change(hass, calls):
                         "platform": "device",
                         "domain": DOMAIN,
                         "device_id": "",
-                        "entity_id": "alarm_control_panel.entity",
+                        "entity_id": entry.id,
                         "type": "armed_away",
                     },
                     "action": {
@@ -245,7 +247,7 @@ async def test_if_fires_on_state_change(hass, calls):
                         "platform": "device",
                         "domain": DOMAIN,
                         "device_id": "",
-                        "entity_id": "alarm_control_panel.entity",
+                        "entity_id": entry.id,
                         "type": "armed_night",
                     },
                     "action": {
@@ -264,7 +266,7 @@ async def test_if_fires_on_state_change(hass, calls):
                         "platform": "device",
                         "domain": DOMAIN,
                         "device_id": "",
-                        "entity_id": "alarm_control_panel.entity",
+                        "entity_id": entry.id,
                         "type": "armed_vacation",
                     },
                     "action": {
@@ -283,64 +285,65 @@ async def test_if_fires_on_state_change(hass, calls):
     )
 
     # Fake that the entity is triggered.
-    hass.states.async_set("alarm_control_panel.entity", STATE_ALARM_TRIGGERED)
+    hass.states.async_set(entry.entity_id, STATE_ALARM_TRIGGERED)
     await hass.async_block_till_done()
     assert len(calls) == 1
     assert (
         calls[0].data["some"]
-        == "triggered - device - alarm_control_panel.entity - pending - triggered - None"
+        == f"triggered - device - {entry.entity_id} - pending - triggered - None"
     )
 
     # Fake that the entity is disarmed.
-    hass.states.async_set("alarm_control_panel.entity", STATE_ALARM_DISARMED)
+    hass.states.async_set(entry.entity_id, STATE_ALARM_DISARMED)
     await hass.async_block_till_done()
     assert len(calls) == 2
     assert (
         calls[1].data["some"]
-        == "disarmed - device - alarm_control_panel.entity - triggered - disarmed - None"
+        == f"disarmed - device - {entry.entity_id} - triggered - disarmed - None"
     )
 
     # Fake that the entity is armed home.
-    hass.states.async_set("alarm_control_panel.entity", STATE_ALARM_ARMED_HOME)
+    hass.states.async_set(entry.entity_id, STATE_ALARM_ARMED_HOME)
     await hass.async_block_till_done()
     assert len(calls) == 3
     assert (
         calls[2].data["some"]
-        == "armed_home - device - alarm_control_panel.entity - disarmed - armed_home - None"
+        == f"armed_home - device - {entry.entity_id} - disarmed - armed_home - None"
     )
 
     # Fake that the entity is armed away.
-    hass.states.async_set("alarm_control_panel.entity", STATE_ALARM_ARMED_AWAY)
+    hass.states.async_set(entry.entity_id, STATE_ALARM_ARMED_AWAY)
     await hass.async_block_till_done()
     assert len(calls) == 4
     assert (
         calls[3].data["some"]
-        == "armed_away - device - alarm_control_panel.entity - armed_home - armed_away - None"
+        == f"armed_away - device - {entry.entity_id} - armed_home - armed_away - None"
     )
 
     # Fake that the entity is armed night.
-    hass.states.async_set("alarm_control_panel.entity", STATE_ALARM_ARMED_NIGHT)
+    hass.states.async_set(entry.entity_id, STATE_ALARM_ARMED_NIGHT)
     await hass.async_block_till_done()
     assert len(calls) == 5
     assert (
         calls[4].data["some"]
-        == "armed_night - device - alarm_control_panel.entity - armed_away - armed_night - None"
+        == f"armed_night - device - {entry.entity_id} - armed_away - armed_night - None"
     )
 
     # Fake that the entity is armed vacation.
-    hass.states.async_set("alarm_control_panel.entity", STATE_ALARM_ARMED_VACATION)
+    hass.states.async_set(entry.entity_id, STATE_ALARM_ARMED_VACATION)
     await hass.async_block_till_done()
     assert len(calls) == 6
     assert (
         calls[5].data["some"]
-        == "armed_vacation - device - alarm_control_panel.entity - armed_night - armed_vacation - None"
+        == f"armed_vacation - device - {entry.entity_id} - armed_night - armed_vacation - None"
     )
 
 
-async def test_if_fires_on_state_change_with_for(hass, calls):
+async def test_if_fires_on_state_change_with_for(hass, entity_reg, calls):
     """Test for triggers firing with delay."""
-    entity_id = f"{DOMAIN}.entity"
-    hass.states.async_set(entity_id, STATE_ALARM_DISARMED)
+    entry = entity_reg.async_get_or_create(DOMAIN, "test", "5678")
+
+    hass.states.async_set(entry.entity_id, STATE_ALARM_DISARMED)
 
     assert await async_setup_component(
         hass,
@@ -352,7 +355,7 @@ async def test_if_fires_on_state_change_with_for(hass, calls):
                         "platform": "device",
                         "domain": DOMAIN,
                         "device_id": "",
-                        "entity_id": entity_id,
+                        "entity_id": entry.id,
                         "type": "triggered",
                         "for": {"seconds": 5},
                     },
@@ -376,10 +379,9 @@ async def test_if_fires_on_state_change_with_for(hass, calls):
         },
     )
     await hass.async_block_till_done()
-    assert hass.states.get(entity_id).state == STATE_ALARM_DISARMED
     assert len(calls) == 0
 
-    hass.states.async_set(entity_id, STATE_ALARM_TRIGGERED)
+    hass.states.async_set(entry.entity_id, STATE_ALARM_TRIGGERED)
     await hass.async_block_till_done()
     assert len(calls) == 0
     async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=10))
@@ -388,5 +390,5 @@ async def test_if_fires_on_state_change_with_for(hass, calls):
     await hass.async_block_till_done()
     assert (
         calls[0].data["some"]
-        == f"turn_off device - {entity_id} - disarmed - triggered - 0:00:05"
+        == f"turn_off device - {entry.entity_id} - disarmed - triggered - 0:00:05"
     )
