@@ -66,7 +66,11 @@ from homeassistant.helpers.network import get_url
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.loader import bind_hass
 
-from .browse_media import BrowseMedia, async_process_play_media_url  # noqa: F401
+from .browse_media import (  # noqa: F401
+    BrowseMedia,
+    async_process_play_media_url,
+    get_browse_image_url,
+)
 from .const import (  # noqa: F401
     ATTR_APP_ID,
     ATTR_APP_NAME,
@@ -1026,16 +1030,9 @@ class MediaPlayerEntity(Entity):
         media_image_id: str | None = None,
     ) -> str:
         """Generate an url for a media browser image."""
-        url_path = (
-            f"/api/media_player_proxy/{self.entity_id}/browse_media"
-            f"/{media_content_type}/{media_content_id}"
+        return get_browse_image_url(
+            self.entity_id, media_content_type, media_content_id, media_image_id
         )
-
-        url_query = {"token": self.access_token}
-        if media_image_id:
-            url_query["media_image_id"] = media_image_id
-
-        return str(URL(url_path).with_query(url_query))
 
 
 class MediaPlayerImageView(HomeAssistantView):

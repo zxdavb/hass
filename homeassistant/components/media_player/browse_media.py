@@ -41,6 +41,25 @@ def async_process_play_media_url(hass: HomeAssistant, media_content_id: str) -> 
     return media_content_id
 
 
+def get_browse_image_url(
+    entity_id: str,
+    media_content_type: str,
+    media_content_id: str,
+    media_image_id: str | None = None,
+) -> str:
+    """Generate an url for a media browser image."""
+    url_path = (
+        f"/api/media_player_proxy/{entity_id}/browse_media"
+        f"/{media_content_type}/{media_content_id}"
+    )
+
+    url_query = {}
+    if media_image_id:
+        url_query["media_image_id"] = media_image_id
+
+    return str(yarl.URL(url_path).with_query(url_query))
+
+
 class BrowseMedia:
     """Represent a browsable media file."""
 
