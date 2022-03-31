@@ -63,7 +63,8 @@ async def test_login_error(hass, requests_mock):
 
 async def test_success(hass, requests_mock):
     """Test successful flow provides entry creation data."""
-    requests_mock.request(ANY, ANY, text='{"account":{"username":"user"}}')
+    requests_mock.request(ANY, "/1.3/account", text='{"account":{"username":"user"}}')
+    requests_mock.request(ANY, "/1.3/server", text='{"servers": {"server":[]}}')
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}, data=FIXTURE_USER_INPUT
     )
