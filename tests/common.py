@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import OrderedDict
-from collections.abc import Awaitable, Callable, Collection
+from collections.abc import Awaitable, Callable, Collection, MutableMapping
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 import functools as ft
@@ -50,6 +50,7 @@ from homeassistant.helpers import (
     entity_platform,
     entity_registry,
     intent,
+    label_registry,
     restore_state,
     storage,
 )
@@ -474,6 +475,18 @@ def mock_device_registry(hass, mock_entries=None, mock_deleted_entries=None):
     registry._rebuild_index()
 
     hass.data[device_registry.DATA_REGISTRY] = registry
+    return registry
+
+
+def mock_label_registry(
+    hass: HomeAssistant,
+    mock_entries: MutableMapping[str, label_registry.LabelEntry] | None = None,
+) -> label_registry.LabelRegistry:
+    """Mock the Label Registry."""
+    registry = label_registry.LabelRegistry(hass)
+    registry.labels = mock_entries or {}
+
+    hass.data[label_registry.DATA_REGISTRY] = registry
     return registry
 
 
