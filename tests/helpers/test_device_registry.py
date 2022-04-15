@@ -1,5 +1,6 @@
 """Tests for the Device Registry."""
 import time
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -250,7 +251,9 @@ async def test_loading_from_storage(hass, hass_storage):
 
 
 @pytest.mark.parametrize("load_registries", [False])
-async def test_migration_1_1_to_1_4(hass, hass_storage):
+async def test_migration_1_1_to_1_4(
+    hass: HomeAssistant, hass_storage: dict[str, Any]
+) -> None:
     """Test migration from version 1.1 to 1.4."""
     hass_storage[device_registry.STORAGE_KEY] = {
         "version": 1,
@@ -376,7 +379,9 @@ async def test_migration_1_1_to_1_4(hass, hass_storage):
 
 
 @pytest.mark.parametrize("load_registries", [False])
-async def test_migration_1_2_to_1_4(hass, hass_storage):
+async def test_migration_1_2_to_1_4(
+    hass: HomeAssistant, hass_storage: dict[str, Any]
+) -> None:
     """Test migration from version 1.2 to 1.4."""
     hass_storage[device_registry.STORAGE_KEY] = {
         "version": 1,
@@ -495,7 +500,9 @@ async def test_migration_1_2_to_1_4(hass, hass_storage):
 
 
 @pytest.mark.parametrize("load_registries", [False])
-async def test_migration_1_3_to_1_4(hass, hass_storage):
+async def test_migration_1_3_to_1_4(
+    hass: HomeAssistant, hass_storage: dict[str, Any]
+) -> None:
     """Test migration from version 1.3 to 1.4."""
     hass_storage[device_registry.STORAGE_KEY] = {
         "version": 1,
