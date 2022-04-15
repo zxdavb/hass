@@ -6,15 +6,16 @@ import pytest
 
 from homeassistant import config_entries
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
-from homeassistant.core import CoreState, callback
+from homeassistant.core import CoreState, HomeAssistant, callback
 from homeassistant.exceptions import RequiredParameterMissing
-from homeassistant.helpers import device_registry, entity_registry
+from homeassistant.helpers import device_registry, entity_registry, label_registry
 
 from tests.common import (
     MockConfigEntry,
     flush_store,
     mock_area_registry,
     mock_device_registry,
+    mock_label_registry,
 )
 
 
@@ -28,6 +29,12 @@ def registry(hass):
 def area_registry(hass):
     """Return an empty, loaded, registry."""
     return mock_area_registry(hass)
+
+
+@pytest.fixture
+def label_registry(hass: HomeAssistant) -> label_registry.LabelRegistry:
+    """Return an empty, loaded, registry."""
+    return mock_label_registry(hass)
 
 
 @pytest.fixture
@@ -184,6 +191,7 @@ async def test_loading_from_storage(hass, hass_storage):
                     "entry_type": device_registry.DeviceEntryType.SERVICE,
                     "id": "abcdefghijklm",
                     "identifiers": [["serial", "12:34:56:AB:CD:EF"]],
+                    "labels": {"label1", "label2"},
                     "manufacturer": "manufacturer",
                     "model": "model",
                     "name_by_user": "Test Friendly Name",
@@ -219,6 +227,7 @@ async def test_loading_from_storage(hass, hass_storage):
     )
     assert entry.id == "abcdefghijklm"
     assert entry.area_id == "12345A"
+    assert entry.labels == {"label1", "label2"}
     assert entry.name_by_user == "Test Friendly Name"
     assert entry.hw_version == "hw_version"
     assert entry.entry_type is device_registry.DeviceEntryType.SERVICE
@@ -241,8 +250,8 @@ async def test_loading_from_storage(hass, hass_storage):
 
 
 @pytest.mark.parametrize("load_registries", [False])
-async def test_migration_1_1_to_1_3(hass, hass_storage):
-    """Test migration from version 1.1 to 1.3."""
+async def test_migration_1_1_to_1_4(hass, hass_storage):
+    """Test migration from version 1.1 to 1.4."""
     hass_storage[device_registry.STORAGE_KEY] = {
         "version": 1,
         "minor_version": 1,
@@ -325,6 +334,7 @@ async def test_migration_1_1_to_1_3(hass, hass_storage):
                     "entry_type": "service",
                     "id": "abcdefghijklm",
                     "identifiers": [["serial", "12:34:56:AB:CD:EF"]],
+                    "labels": [],
                     "manufacturer": "manufacturer",
                     "model": "model",
                     "name": "name",
@@ -342,6 +352,7 @@ async def test_migration_1_1_to_1_3(hass, hass_storage):
                     "entry_type": None,
                     "id": "invalid-entry-type",
                     "identifiers": [["serial", "mock-id-invalid-entry"]],
+                    "labels": [],
                     "manufacturer": None,
                     "model": None,
                     "name_by_user": None,
@@ -365,8 +376,8 @@ async def test_migration_1_1_to_1_3(hass, hass_storage):
 
 
 @pytest.mark.parametrize("load_registries", [False])
-async def test_migration_1_2_to_1_3(hass, hass_storage):
-    """Test migration from version 1.2 to 1.3."""
+async def test_migration_1_2_to_1_4(hass, hass_storage):
+    """Test migration from version 1.2 to 1.4."""
     hass_storage[device_registry.STORAGE_KEY] = {
         "version": 1,
         "minor_version": 2,
@@ -450,6 +461,7 @@ async def test_migration_1_2_to_1_3(hass, hass_storage):
                     "entry_type": "service",
                     "id": "abcdefghijklm",
                     "identifiers": [["serial", "12:34:56:AB:CD:EF"]],
+                    "labels": [],
                     "manufacturer": "manufacturer",
                     "model": "model",
                     "name": "name",
@@ -467,6 +479,126 @@ async def test_migration_1_2_to_1_3(hass, hass_storage):
                     "entry_type": None,
                     "id": "invalid-entry-type",
                     "identifiers": [["serial", "mock-id-invalid-entry"]],
+                    "labels": [],
+                    "manufacturer": None,
+                    "model": None,
+                    "name_by_user": None,
+                    "name": None,
+                    "sw_version": None,
+                    "hw_version": None,
+                    "via_device_id": None,
+                },
+            ],
+            "deleted_devices": [],
+        },
+    }
+
+
+@pytest.mark.parametrize("load_registries", [False])
+async def test_migration_1_3_to_1_4(hass, hass_storage):
+    """Test migration from version 1.3 to 1.4."""
+    hass_storage[device_registry.STORAGE_KEY] = {
+        "version": 1,
+        "minor_version": 3,
+        "key": device_registry.STORAGE_KEY,
+        "data": {
+            "devices": [
+                {
+                    "area_id": None,
+                    "config_entries": ["1234"],
+                    "configuration_url": None,
+                    "connections": [["Zigbee", "01.23.45.67.89"]],
+                    "disabled_by": None,
+                    "entry_type": "service",
+                    "id": "abcdefghijklm",
+                    "identifiers": [["serial", "12:34:56:AB:CD:EF"]],
+                    "manufacturer": "manufacturer",
+                    "model": "model",
+                    "name": "name",
+                    "name_by_user": None,
+                    "sw_version": "new_version",
+                    "hw_version": None,
+                    "via_device_id": None,
+                },
+                {
+                    "area_id": None,
+                    "config_entries": [None],
+                    "configuration_url": None,
+                    "connections": [],
+                    "disabled_by": None,
+                    "entry_type": None,
+                    "id": "invalid-entry-type",
+                    "identifiers": [["serial", "mock-id-invalid-entry"]],
+                    "manufacturer": None,
+                    "model": None,
+                    "name_by_user": None,
+                    "name": None,
+                    "sw_version": None,
+                    "hw_version": None,
+                    "via_device_id": None,
+                },
+            ],
+            "deleted_devices": [],
+        },
+    }
+
+    await device_registry.async_load(hass)
+    registry = device_registry.async_get(hass)
+
+    # Test data was loaded
+    entry = registry.async_get_or_create(
+        config_entry_id="1234",
+        connections={("Zigbee", "01.23.45.67.89")},
+        identifiers={("serial", "12:34:56:AB:CD:EF")},
+    )
+    assert entry.id == "abcdefghijklm"
+
+    # Update to trigger a store
+    entry = registry.async_get_or_create(
+        config_entry_id="1234",
+        connections={("Zigbee", "01.23.45.67.89")},
+        identifiers={("serial", "12:34:56:AB:CD:EF")},
+        hw_version="new_version",
+    )
+    assert entry.id == "abcdefghijklm"
+
+    # Check we store migrated data
+    await flush_store(registry._store)
+
+    assert hass_storage[device_registry.STORAGE_KEY] == {
+        "version": device_registry.STORAGE_VERSION_MAJOR,
+        "minor_version": device_registry.STORAGE_VERSION_MINOR,
+        "key": device_registry.STORAGE_KEY,
+        "data": {
+            "devices": [
+                {
+                    "area_id": None,
+                    "config_entries": ["1234"],
+                    "configuration_url": None,
+                    "connections": [["Zigbee", "01.23.45.67.89"]],
+                    "disabled_by": None,
+                    "entry_type": "service",
+                    "id": "abcdefghijklm",
+                    "identifiers": [["serial", "12:34:56:AB:CD:EF"]],
+                    "labels": [],
+                    "manufacturer": "manufacturer",
+                    "model": "model",
+                    "name": "name",
+                    "name_by_user": None,
+                    "sw_version": "new_version",
+                    "hw_version": "new_version",
+                    "via_device_id": None,
+                },
+                {
+                    "area_id": None,
+                    "config_entries": [None],
+                    "configuration_url": None,
+                    "connections": [],
+                    "disabled_by": None,
+                    "entry_type": None,
+                    "id": "invalid-entry-type",
+                    "identifiers": [["serial", "mock-id-invalid-entry"]],
+                    "labels": [],
                     "manufacturer": None,
                     "model": None,
                     "name_by_user": None,
@@ -816,7 +948,10 @@ async def test_loading_saving_data(hass, registry, area_registry):
     assert len(registry.deleted_devices) == 1
 
     orig_via = registry.async_update_device(
-        orig_via.id, area_id="mock-area-id", name_by_user="mock-name-by-user"
+        orig_via.id,
+        area_id="mock-area-id",
+        name_by_user="mock-name-by-user",
+        labels={"mock-label1", "mock-label2"},
     )
 
     # Now load written data in new registry
@@ -915,12 +1050,14 @@ async def test_update(hass, registry, update_events):
     )
     new_identifiers = {("hue", "654"), ("bla", "321")}
     assert not entry.area_id
+    assert not entry.labels
     assert not entry.name_by_user
 
     with patch.object(registry, "async_schedule_save") as mock_save:
         updated_entry = registry.async_update_device(
             entry.id,
             area_id="12345A",
+            labels={"label1", "label2"},
             manufacturer="Test Producer",
             model="Test Model",
             name_by_user="Test Friendly Name",
@@ -932,6 +1069,7 @@ async def test_update(hass, registry, update_events):
     assert mock_save.call_count == 1
     assert updated_entry != entry
     assert updated_entry.area_id == "12345A"
+    assert updated_entry.labels == {"label1", "label2"}
     assert updated_entry.manufacturer == "Test Producer"
     assert updated_entry.model == "Test Model"
     assert updated_entry.name_by_user == "Test Friendly Name"
@@ -966,6 +1104,7 @@ async def test_update(hass, registry, update_events):
         "area_id": None,
         "disabled_by": None,
         "identifiers": {("bla", "123"), ("hue", "456")},
+        "labels": set(),
         "manufacturer": None,
         "model": None,
         "name_by_user": None,
@@ -1671,3 +1810,76 @@ async def test_only_disable_device_if_all_config_entries_are_disabled(hass, regi
 
     entry1 = registry.async_get(entry1.id)
     assert not entry1.disabled
+
+
+async def test_removing_labels(registry: device_registry.DeviceRegistry) -> None:
+    """Make sure we can clear labels."""
+    entry = registry.async_get_or_create(
+        config_entry_id="123",
+        connections={(device_registry.CONNECTION_NETWORK_MAC, "12:34:56:AB:CD:EF")},
+        identifiers={("bridgeid", "0123")},
+        labels={"label1", "label2"},
+        manufacturer="manufacturer",
+        model="model",
+    )
+
+    registry.async_clear_label_id("label1")
+    entry_cleared_label1 = registry.async_get_device({("bridgeid", "0123")})
+
+    registry.async_clear_label_id("label2")
+    entry_cleared_label2 = registry.async_get_device({("bridgeid", "0123")})
+
+    assert entry_cleared_label1
+    assert entry_cleared_label2
+    assert entry != entry_cleared_label1
+    assert entry != entry_cleared_label2
+    assert entry_cleared_label1 != entry_cleared_label2
+    assert entry.labels == {"label1", "label2"}
+    assert entry_cleared_label1.labels == {"label2"}
+    assert not entry_cleared_label2.labels
+
+
+async def test_entries_for_label(registry: device_registry.DeviceRegistry) -> None:
+    """Test getting device entries by label."""
+    registry.async_get_or_create(
+        config_entry_id="000",
+        connections={(device_registry.CONNECTION_NETWORK_MAC, "12:34:56:AB:CD:00")},
+        identifiers={("bridgeid", "0000")},
+        manufacturer="manufacturer",
+        model="model",
+    )
+    entry_1 = registry.async_get_or_create(
+        config_entry_id="123",
+        connections={(device_registry.CONNECTION_NETWORK_MAC, "12:34:56:AB:CD:23")},
+        identifiers={("bridgeid", "0123")},
+        labels={"label1"},
+        manufacturer="manufacturer",
+        model="model",
+    )
+    entry_2 = registry.async_get_or_create(
+        config_entry_id="456",
+        connections={(device_registry.CONNECTION_NETWORK_MAC, "12:34:56:AB:CD:56")},
+        identifiers={("bridgeid", "0456")},
+        labels={"label2"},
+        manufacturer="manufacturer",
+        model="model",
+    )
+    entry_1_and_2 = registry.async_get_or_create(
+        config_entry_id="789",
+        connections={(device_registry.CONNECTION_NETWORK_MAC, "12:34:56:AB:CD:89")},
+        identifiers={("bridgeid", "0789")},
+        labels={"label1", "label2"},
+        manufacturer="manufacturer",
+        model="model",
+    )
+
+    entries = device_registry.async_entries_for_label(registry, "label1")
+    assert len(entries) == 2
+    assert entries == [entry_1, entry_1_and_2]
+
+    entries = device_registry.async_entries_for_label(registry, "label2")
+    assert len(entries) == 2
+    assert entries == [entry_2, entry_1_and_2]
+
+    assert not device_registry.async_entries_for_label(registry, "unknown")
+    assert not device_registry.async_entries_for_label(registry, "")
