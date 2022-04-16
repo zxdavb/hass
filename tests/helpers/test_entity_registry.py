@@ -67,6 +67,7 @@ def test_get_or_create_suggested_object_id(registry):
 
 def test_get_or_create_updates_data(registry):
     """Test that we update data in get_or_create."""
+    # TODO Add label stuff
     orig_config_entry = MockConfigEntry(domain="light")
 
     orig_entry = registry.async_get_or_create(
@@ -186,6 +187,7 @@ def test_create_triggers_save(hass, registry):
 
 async def test_loading_saving_data(hass, registry):
     """Test that we load/save data correctly."""
+    # TODO Add label stuff
     mock_config = MockConfigEntry(domain="light")
 
     orig_entry1 = registry.async_get_or_create("light", "hue", "1234")
@@ -416,6 +418,7 @@ async def test_removing_config_entry_id(hass, registry, update_events):
 
 async def test_removing_area_id(registry):
     """Make sure we can clear area id."""
+    # TODO Duplicate for labels
     entry = registry.async_get_or_create("light", "hue", "5678")
 
     entry_w_area = registry.async_update_entity(entry.entity_id, area_id="12345A")
@@ -1357,3 +1360,66 @@ def test_migrate_entity_to_new_platform(hass, registry):
             new_unique_id=new_unique_id,
             new_config_entry_id=new_config_entry.entry_id,
         )
+
+
+async def test_removing_labels(registry: er.EntityRegistry) -> None:
+    """Make sure we can clear labels."""
+    entry = registry.async_get_or_create(
+        domain="light",
+        platform="hue",
+        unique_id="5678",
+        labels={"label1", "label2"},
+    )
+
+    registry.async_clear_label_id("label1")
+    entry_cleared_label1 = registry.async_get(entry.entity_id)
+
+    registry.async_clear_label_id("label2")
+    entry_cleared_label2 = registry.async_get(entry.entity_id)
+
+    assert entry_cleared_label1
+    assert entry_cleared_label2
+    assert entry != entry_cleared_label1
+    assert entry != entry_cleared_label2
+    assert entry_cleared_label1 != entry_cleared_label2
+    assert entry.labels == {"label1", "label2"}
+    assert entry_cleared_label1.labels == {"label2"}
+    assert not entry_cleared_label2.labels
+
+
+async def test_entries_for_label(registry: er.EntityRegistry) -> None:
+    """Test getting entity entries by label."""
+    registry.async_get_or_create(
+        domain="light",
+        platform="hue",
+        unique_id="000",
+    )
+    label_1 = registry.async_get_or_create(
+        domain="light",
+        platform="hue",
+        unique_id="123",
+        labels={"label1"},
+    )
+    label_2 = registry.async_get_or_create(
+        domain="light",
+        platform="hue",
+        unique_id="456",
+        labels={"label2"},
+    )
+    label_1_and_2 = registry.async_get_or_create(
+        domain="light",
+        platform="hue",
+        unique_id="789",
+        labels={"label1", "label2"},
+    )
+
+    entries = er.async_entries_for_label(registry, "label1")
+    assert len(entries) == 2
+    assert entries == [label_1, label_1_and_2]
+
+    entries = er.async_entries_for_label(registry, "label2")
+    assert len(entries) == 2
+    assert entries == [label_2, label_1_and_2]
+
+    assert not er.async_entries_for_label(registry, "unknown")
+    assert not er.async_entries_for_label(registry, "")
