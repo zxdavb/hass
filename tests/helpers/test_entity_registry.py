@@ -67,7 +67,6 @@ def test_get_or_create_suggested_object_id(registry):
 
 def test_get_or_create_updates_data(registry):
     """Test that we update data in get_or_create."""
-    # TODO Add label stuff
     orig_config_entry = MockConfigEntry(domain="light")
 
     orig_entry = registry.async_get_or_create(
@@ -82,6 +81,7 @@ def test_get_or_create_updates_data(registry):
         entity_category=EntityCategory.CONFIG,
         hidden_by=er.RegistryEntryHider.INTEGRATION,
         has_entity_name=True,
+        labels={"label1"},
         original_device_class="mock-device-class",
         original_icon="initial-original_icon",
         original_name="initial-original_name",
@@ -104,6 +104,7 @@ def test_get_or_create_updates_data(registry):
         icon=None,
         id=orig_entry.id,
         has_entity_name=True,
+        labels={"label1"},
         name=None,
         original_device_class="mock-device-class",
         original_icon="initial-original_icon",
@@ -126,6 +127,7 @@ def test_get_or_create_updates_data(registry):
         entity_category=None,
         hidden_by=er.RegistryEntryHider.USER,
         has_entity_name=False,
+        labels={"label1", "label2"},
         original_device_class="new-mock-device-class",
         original_icon="updated-original_icon",
         original_name="updated-original_name",
@@ -148,6 +150,7 @@ def test_get_or_create_updates_data(registry):
         icon=None,
         id=orig_entry.id,
         has_entity_name=False,
+        labels={"label1", "label2"},
         name=None,
         original_device_class="new-mock-device-class",
         original_icon="updated-original_icon",
@@ -187,7 +190,6 @@ def test_create_triggers_save(hass, registry):
 
 async def test_loading_saving_data(hass, registry):
     """Test that we load/save data correctly."""
-    # TODO Add label stuff
     mock_config = MockConfigEntry(domain="light")
 
     orig_entry1 = registry.async_get_or_create("light", "hue", "1234")
@@ -203,6 +205,7 @@ async def test_loading_saving_data(hass, registry):
         entity_category=EntityCategory.CONFIG,
         hidden_by=er.RegistryEntryHider.INTEGRATION,
         has_entity_name=True,
+        labels={"label1", "label2"},
         original_device_class="mock-device-class",
         original_icon="hass:original-icon",
         original_name="Original Name",
@@ -245,6 +248,7 @@ async def test_loading_saving_data(hass, registry):
     assert new_entry2.icon == "hass:user-icon"
     assert new_entry2.hidden_by == er.RegistryEntryHider.INTEGRATION
     assert new_entry2.has_entity_name is True
+    assert new_entry2.labels == {"label1", "label2"}
     assert new_entry2.name == "User Name"
     assert new_entry2.options == {"light": {"minimum_brightness": 20}}
     assert new_entry2.original_device_class == "mock-device-class"
@@ -418,7 +422,6 @@ async def test_removing_config_entry_id(hass, registry, update_events):
 
 async def test_removing_area_id(registry):
     """Make sure we can clear area id."""
-    # TODO Duplicate for labels
     entry = registry.async_get_or_create("light", "hue", "5678")
 
     entry_w_area = registry.async_update_entity(entry.entity_id, area_id="12345A")
