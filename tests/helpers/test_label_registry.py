@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 
 from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.label_registry import (
     EVENT_LABEL_REGISTRY_UPDATED,
     STORAGE_KEY,
@@ -14,13 +15,30 @@ from homeassistant.helpers.label_registry import (
     async_load,
 )
 
-from tests.common import flush_store, mock_label_registry
+from tests.common import (
+    flush_store,
+    mock_device_registry,
+    mock_label_registry,
+    mock_registry,
+)
 
 
 @pytest.fixture(name="registry")
 def registry_fixture(hass: HomeAssistant) -> LabelRegistry:
     """Return an empty, loaded, registry."""
     return mock_label_registry(hass)
+
+
+@pytest.fixture(name="device_registry")
+def device_registry_fixture(hass):
+    """Return an empty, loaded, registry."""
+    return mock_device_registry(hass)
+
+
+@pytest.fixture(name="entity_registry")
+def entity_registry_fixture(hass):
+    """Return an empty, loaded, registry."""
+    return mock_registry(hass)
 
 
 @pytest.fixture(name="update_events")
@@ -343,3 +361,103 @@ async def test_async_get_label_by_name_not_found(
     assert len(registry.labels) == 1
 
     assert registry.async_get_label_by_name("non_exist") is None
+
+
+async def test_labels_removed_from_entities(
+    hass: HomeAssistant, registry: LabelRegistry, entity_registry: er.EntityRegistry
+) -> None:
+    """Tests if label gets removed from entity when the label is removed."""
+    label1 = registry.async_create("label1")
+    label2 = registry.async_create("label2")
+    assert len(registry.labels) == 2
+
+    entity_registry.async_get_or_create(
+        domain="light",
+        platform="hue",
+        unique_id="123",
+        labels={label1.label_id},
+    )
+    entity_registry.async_get_or_create(
+        domain="light",
+        platform="hue",
+        unique_id="456",
+        labels={label2.label_id},
+    )
+    entity_registry.async_get_or_create(
+        domain="light",
+        platform="hue",
+        unique_id="789",
+        labels={label1.label_id, label2.label_id},
+    )
+
+    entries = er.async_entries_for_label(entity_registry, label1.label_id)
+    assert len(entries) == 2
+    entries = er.async_entries_for_label(entity_registry, label2.label_id)
+    assert len(entries) == 2
+
+    registry.async_delete(label1.label_id)
+
+    entries = er.async_entries_for_label(entity_registry, label1.label_id)
+    assert len(entries) == 0
+    entries = er.async_entries_for_label(entity_registry, label2.label_id)
+    assert len(entries) == 2
+
+    registry.async_delete(label2.label_id)
+
+    entries = er.async_entries_for_label(entity_registry, label1.label_id)
+    assert len(entries) == 0
+    entries = er.async_entries_for_label(entity_registry, label2.label_id)
+    assert len(entries) == 0
+
+
+async def test_labels_removed_from_devices(
+    hass: HomeAssistant, registry: LabelRegistry, device_registry: dr.DeviceRegistry
+) -> None:
+    """Tests if label gets removed from devices when the label is removed."""
+    label1 = registry.async_create("label1")
+    label2 = registry.async_create("label2")
+    assert len(registry.labels) == 2
+
+    device_registry.async_get_or_create(
+        config_entry_id="123",
+        connections={(dr.CONNECTION_NETWORK_MAC, "12:34:56:AB:CD:23")},
+        identifiers={("bridgeid", "0123")},
+        labels={label1.label_id},
+        manufacturer="manufacturer",
+        model="model",
+    )
+    device_registry.async_get_or_create(
+        config_entry_id="456",
+        connections={(dr.CONNECTION_NETWORK_MAC, "12:34:56:AB:CD:56")},
+        identifiers={("bridgeid", "0456")},
+        labels={label2.label_id},
+        manufacturer="manufacturer",
+        model="model",
+    )
+    device_registry.async_get_or_create(
+        config_entry_id="789",
+        connections={(dr.CONNECTION_NETWORK_MAC, "12:34:56:AB:CD:89")},
+        identifiers={("bridgeid", "0789")},
+        labels={label1.label_id, label2.label_id},
+        manufacturer="manufacturer",
+        model="model",
+    )
+
+    entries = dr.async_entries_for_label(device_registry, label1.label_id)
+    assert len(entries) == 2
+    entries = dr.async_entries_for_label(device_registry, label2.label_id)
+    assert len(entries) == 2
+
+    registry.async_delete(label1.label_id)
+
+    entries = dr.async_entries_for_label(device_registry, label1.label_id)
+    assert len(entries) == 0
+    entries = dr.async_entries_for_label(device_registry, label2.label_id)
+    assert len(entries) == 2
+
+    registry.async_delete(label2.label_id)
+
+    entries = dr.async_entries_for_label(device_registry, label1.label_id)
+    assert len(entries) == 0
+    entries = dr.async_entries_for_label(device_registry, label2.label_id)
+    assert len(entries) == 0

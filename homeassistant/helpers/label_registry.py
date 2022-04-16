@@ -119,12 +119,10 @@ class LabelRegistry:
         label = self.labels[label_id]
 
         # Clean up all references
-        _ = dr.async_get(self.hass)
-        _ = er.async_get(self.hass)
-
-        # Second step...
-        # device_registry.async_clear_label_id(label_id)
-        # entity_registry.async_clear_label_id(label_id)
+        device_registry = dr.async_get(self.hass)
+        entity_registry = er.async_get(self.hass)
+        device_registry.async_clear_label_id(label_id)
+        entity_registry.async_clear_label_id(label_id)
 
         del self.labels[label_id]
         del self._normalized_name_label_idx[label.normalized_name]
