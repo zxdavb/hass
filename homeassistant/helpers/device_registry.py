@@ -204,7 +204,7 @@ class DeviceRegistryStore(storage.Store):
                 for device in old_data["devices"]:
                     device["hw_version"] = device.get("hw_version")
             if old_minor_version < 4:
-                # Introduced in 2022.5
+                # Introduced in 2022.8
                 for device in old_data["devices"]:
                     device["labels"] = device.get("labels", set())
 
@@ -321,8 +321,8 @@ class DeviceRegistry:
         # To disable a device if it gets created
         disabled_by: DeviceEntryDisabler | None | UndefinedType = UNDEFINED,
         entry_type: DeviceEntryType | None | UndefinedType = UNDEFINED,
-        labels: set[str] | UndefinedType = UNDEFINED,
         identifiers: set[tuple[str, str]] | None = None,
+        labels: set[str] | UndefinedType = UNDEFINED,
         manufacturer: str | None | UndefinedType = UNDEFINED,
         model: str | None | UndefinedType = UNDEFINED,
         name: str | None | UndefinedType = UNDEFINED,

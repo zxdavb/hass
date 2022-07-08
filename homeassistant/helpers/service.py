@@ -386,7 +386,7 @@ def async_extract_referenced_entity_ids(
         if device_entry.area_id in selector.area_ids:
             selected.referenced_devices.add(device_entry.id)
 
-    # Find devices for targeted areas
+    # Find devices for targeted labels
     selected.referenced_devices.update(selector.device_ids)
     for device_entry in dev_reg.devices.values():
         if device_entry.labels.intersection(selector.label_ids):

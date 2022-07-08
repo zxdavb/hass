@@ -10,7 +10,7 @@ from homeassistant.helpers.label_registry import LabelEntry, async_get
 
 
 async def async_setup(hass: HomeAssistant) -> bool:
-    """Enable the Label Registry views."""
+    """Register the Label Registry WS commands."""
     websocket_api.async_register_command(hass, websocket_list_labels)
     websocket_api.async_register_command(hass, websocket_create_label)
     websocket_api.async_register_command(hass, websocket_delete_label)
