@@ -1,4 +1,4 @@
-"""HTTP views to interact with the label registry."""
+"""Websocket API to interact with the label registry."""
 from typing import Any
 
 import voluptuous as vol
