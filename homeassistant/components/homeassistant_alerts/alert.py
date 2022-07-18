@@ -8,14 +8,17 @@ import logging
 import aiohttp
 from awesomeversion import AwesomeVersion, AwesomeVersionStrategy
 
+from homeassistant.components.resolution_center import (
+    async_create_issue,
+    async_delete_issue,
+)
+from homeassistant.components.resolution_center.models import IssueSeverity
 from homeassistant.const import __version__
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import DOMAIN
-from .issue_handler import async_create_issue, async_delete_issue
-from .models import IssueSeverity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -91,7 +94,7 @@ async def async_setup(hass: HomeAssistant) -> None:
                 continue
             async_create_issue(
                 hass,
-                "resolution_center.alert",
+                "homeassistant_alerts",
                 issue_id,
                 is_fixable=False,
                 learn_more_url=alert.learn_more_url,
@@ -103,7 +106,7 @@ async def async_setup(hass: HomeAssistant) -> None:
 
         inactive_alerts = old_alerts - active_alerts
         for issue_id in inactive_alerts:
-            async_delete_issue(hass, "resolution_center.alert", issue_id)
+            async_delete_issue(hass, "homeassistant_alerts", issue_id)
 
         hass.data[DOMAIN]["alerts"] = active_alerts
 
@@ -112,7 +115,7 @@ async def async_setup(hass: HomeAssistant) -> None:
         hass,
         _LOGGER,
         # Name of the data. For logging purposes.
-        name="resolution_center.alert",
+        name="homeassistant_alerts",
         update_method=async_update_data,
         # Polling interval. Will only be polled if there are subscribers.
         update_interval=timedelta(minutes=60),

@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from homeassistant.components.resolution_center.const import DOMAIN
+from homeassistant.components.homeassistant_alerts.const import DOMAIN
 from homeassistant.core import HomeAssistant
 from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
@@ -78,7 +78,7 @@ async def test_alerts(
     aioclient_mock.clear_requests()
     aioclient_mock.get(
         "https://alerts.home-assistant.io/alerts.json",
-        text=load_fixture("alerts_1.json", "resolution_center"),
+        text=load_fixture("alerts_1.json", "homeassistant_alerts"),
     )
 
     activated_components = (
@@ -98,7 +98,7 @@ async def test_alerts(
         hass.config.components.add(domain)
 
     with patch(
-        "homeassistant.components.resolution_center.alert.__version__",
+        "homeassistant.components.homeassistant_alerts.alert.__version__",
         ha_version,
     ):
         assert await async_setup_component(hass, DOMAIN, {})
@@ -114,13 +114,13 @@ async def test_alerts(
                 "breaks_in_ha_version": None,
                 "dismissed": False,
                 "dismissed_version": None,
-                "domain": "resolution_center.alert",
+                "domain": "homeassistant_alerts",
                 "is_fixable": False,
                 "issue_id": f"{alert}_{integration}",
                 "learn_more_url": f"https://alerts.home-assistant.io/#{alert}",
                 "severity": "warning",
                 "translation_key": "alert",
-                "translation_placeholders": integration,
+                "translation_placeholders": {"integration": integration},
             }
             for alert, integration in expected_alerts
         ]
@@ -167,7 +167,7 @@ async def test_bad_alerts(
     aioclient_mock.clear_requests()
     aioclient_mock.get(
         "https://alerts.home-assistant.io/alerts.json",
-        text=load_fixture(fixture, "resolution_center"),
+        text=load_fixture(fixture, "homeassistant_alerts"),
     )
 
     activated_components = (
@@ -179,7 +179,7 @@ async def test_bad_alerts(
         hass.config.components.add(domain)
 
     with patch(
-        "homeassistant.components.resolution_center.alert.__version__",
+        "homeassistant.components.homeassistant_alerts.alert.__version__",
         ha_version,
     ):
         assert await async_setup_component(hass, DOMAIN, {})
@@ -195,13 +195,13 @@ async def test_bad_alerts(
                 "breaks_in_ha_version": None,
                 "dismissed": False,
                 "dismissed_version": None,
-                "domain": "resolution_center.alert",
+                "domain": "homeassistant_alerts",
                 "is_fixable": False,
                 "issue_id": f"{alert}_{integration}",
                 "learn_more_url": f"https://alerts.home-assistant.io/#{alert}",
                 "severity": "warning",
                 "translation_key": "alert",
-                "translation_placeholders": integration,
+                "translation_placeholders": {"integration": integration},
             }
             for alert, integration in expected_alerts
         ]
@@ -311,7 +311,7 @@ async def test_alerts_change(
     aioclient_mock.clear_requests()
     aioclient_mock.get(
         "https://alerts.home-assistant.io/alerts.json",
-        text=load_fixture(fixture_1, "resolution_center"),
+        text=load_fixture(fixture_1, "homeassistant_alerts"),
     )
 
     activated_components = (
@@ -331,7 +331,7 @@ async def test_alerts_change(
         hass.config.components.add(domain)
 
     with patch(
-        "homeassistant.components.resolution_center.alert.__version__",
+        "homeassistant.components.homeassistant_alerts.alert.__version__",
         ha_version,
     ):
         assert await async_setup_component(hass, DOMAIN, {})
@@ -350,13 +350,13 @@ async def test_alerts_change(
                 "breaks_in_ha_version": None,
                 "dismissed": False,
                 "dismissed_version": None,
-                "domain": "resolution_center.alert",
+                "domain": "homeassistant_alerts",
                 "is_fixable": False,
                 "issue_id": f"{alert}_{integration}",
                 "learn_more_url": f"https://alerts.home-assistant.io/#{alert}",
                 "severity": "warning",
                 "translation_key": "alert",
-                "translation_placeholders": integration,
+                "translation_placeholders": {"integration": integration},
             }
             for alert, integration in expected_alerts_1
         ],
@@ -365,7 +365,7 @@ async def test_alerts_change(
     aioclient_mock.clear_requests()
     aioclient_mock.get(
         "https://alerts.home-assistant.io/alerts.json",
-        text=load_fixture(fixture_2, "resolution_center"),
+        text=load_fixture(fixture_2, "homeassistant_alerts"),
     )
 
     future = now + timedelta(minutes=60, seconds=1)
@@ -382,13 +382,13 @@ async def test_alerts_change(
                 "breaks_in_ha_version": None,
                 "dismissed": False,
                 "dismissed_version": None,
-                "domain": "resolution_center.alert",
+                "domain": "homeassistant_alerts",
                 "is_fixable": False,
                 "issue_id": f"{alert}_{integration}",
                 "learn_more_url": f"https://alerts.home-assistant.io/#{alert}",
                 "severity": "warning",
                 "translation_key": "alert",
-                "translation_placeholders": integration,
+                "translation_placeholders": {"integration": integration},
             }
             for alert, integration in expected_alerts_2
         ],
