@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 import pytest
 
@@ -112,9 +112,10 @@ async def test_alerts(
         "issues": [
             {
                 "breaks_in_ha_version": None,
-                "dismissed": False,
+                "created": ANY,
                 "dismissed_version": None,
                 "domain": "homeassistant_alerts",
+                "ignored": False,
                 "is_fixable": False,
                 "issue_id": f"{alert}_{integration}",
                 "learn_more_url": f"https://alerts.home-assistant.io/#{alert}",
@@ -193,9 +194,10 @@ async def test_bad_alerts(
         "issues": [
             {
                 "breaks_in_ha_version": None,
-                "dismissed": False,
+                "created": ANY,
                 "dismissed_version": None,
                 "domain": "homeassistant_alerts",
+                "ignored": False,
                 "is_fixable": False,
                 "issue_id": f"{alert}_{integration}",
                 "learn_more_url": f"https://alerts.home-assistant.io/#{alert}",
@@ -348,9 +350,10 @@ async def test_alerts_change(
         [
             {
                 "breaks_in_ha_version": None,
-                "dismissed": False,
+                "created": ANY,
                 "dismissed_version": None,
                 "domain": "homeassistant_alerts",
+                "ignored": False,
                 "is_fixable": False,
                 "issue_id": f"{alert}_{integration}",
                 "learn_more_url": f"https://alerts.home-assistant.io/#{alert}",
@@ -380,9 +383,10 @@ async def test_alerts_change(
         [
             {
                 "breaks_in_ha_version": None,
-                "dismissed": False,
+                "created": ANY,
                 "dismissed_version": None,
                 "domain": "homeassistant_alerts",
+                "ignored": False,
                 "is_fixable": False,
                 "issue_id": f"{alert}_{integration}",
                 "learn_more_url": f"https://alerts.home-assistant.io/#{alert}",
