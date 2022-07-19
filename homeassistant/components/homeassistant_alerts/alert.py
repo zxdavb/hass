@@ -66,7 +66,7 @@ async def async_setup(hass: HomeAssistant) -> None:
                         alert["homeassistant"]["max"],
                         find_first_match=False,
                     )
-                    if ha_version > max_version:
+                    if ha_version >= max_version:
                         continue
             if "alert_url" not in alert or "integrations" not in alert:
                 continue
