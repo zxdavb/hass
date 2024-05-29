@@ -83,18 +83,16 @@ class EvoDHW(EvoChild, WaterHeaterEntity):
 
     _evo_device: evo.HotWater  # mypy hint
 
-    def __init__(self, evo_broker: EvoBroker, evo_device: evo.HotWater) -> None:
+    def __init__(self, broker: EvoBroker, evo_device: evo.HotWater) -> None:
         """Initialize an evohome DHW controller."""
 
-        super().__init__(evo_broker, evo_device)
+        super().__init__(broker, evo_device)
         self._evo_id = evo_device.dhwId
 
         self._attr_unique_id = evo_device.dhwId
         self._attr_name = evo_device.name  # is static
 
-        self._attr_precision = (
-            PRECISION_TENTHS if evo_broker.client_v1 else PRECISION_WHOLE
-        )
+        self._attr_precision = PRECISION_TENTHS if broker.client_v1 else PRECISION_WHOLE
         self._attr_supported_features = (
             WaterHeaterEntityFeature.AWAY_MODE | WaterHeaterEntityFeature.OPERATION_MODE
         )

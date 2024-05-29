@@ -1,4 +1,32 @@
 {
+  "config": {
+    "step": {
+      "user": {
+        "description": "Please enter the credentials used to log into https://international.mytotalconnectcomfort.com/.",
+        "data": {
+          "username": "[%key:common::config_flow::data::username%]",
+          "password": "[%key:common::config_flow::data::password%]"
+        }
+      },
+      "loc_idx": {
+        "description": "Please enter the location index (leave as 0 if you are not sure).",
+        "data": {
+          "loc_idx": "Location index"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "description": "Additional Evohome config options.",
+        "data": {
+          "away_cool_temperature": "Away cool temperature",
+          "away_heat_temperature": "Away heat temperature"
+        }
+      }
+    }
+  },
   "services": {
     "set_system_mode": {
       "name": "Set system mode",

@@ -1,6 +1,8 @@
 """Support for (EMEA/EU-based) Honeywell TCC climate systems."""
 
-DOMAIN = "evohome"
+from typing import Final
+
+DOMAIN: Final = "evohome"
 
 STORAGE_VER = 1
 STORAGE_KEY = DOMAIN

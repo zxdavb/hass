@@ -6,5 +6,6 @@
   "documentation": "https://www.home-assistant.io/integrations/evohome",
   "iot_class": "cloud_polling",
   "loggers": ["evohomeasync", "evohomeasync2"],
-  "requirements": ["evohome-async==0.4.19"]
+  "requirements": ["evohome-async==0.4.19"],
+  "single_config_entry": true
 }

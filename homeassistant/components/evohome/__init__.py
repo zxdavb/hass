@@ -8,7 +8,7 @@ from __future__ import annotations
 from collections.abc import Awaitable
 from datetime import datetime, timedelta
 import logging
-from typing import Any
+from typing import Any, Final
 
 import evohomeasync as ev1
 from evohomeasync.schema import SZ_ID, SZ_SESSION_ID, SZ_TEMP
@@ -33,6 +33,7 @@ from evohomeasync2.schema.const import (
 )
 import voluptuous as vol
 
+from homeassistant import config_entries as ce
 from homeassistant.const import (
     ATTR_ENTITY_ID,
     CONF_PASSWORD,
@@ -56,6 +57,7 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers.typing import ConfigType
 import homeassistant.util.dt as dt_util
 
+from .config_flow import CONF_LOCATION_IDX, SCAN_INTERVAL_DEFAULT, SCAN_INTERVAL_MINIMUM
 from .const import DOMAIN, GWS, STORAGE_KEY, STORAGE_VER, TCS, UTC_OFFSET
 from .helpers import (
     convert_dict,
@@ -72,24 +74,23 @@ ACCESS_TOKEN_EXPIRES = "access_token_expires"
 REFRESH_TOKEN = "refresh_token"
 USER_DATA = "user_data"
 
-CONF_LOCATION_IDX = "location_idx"
 
-SCAN_INTERVAL_DEFAULT = timedelta(seconds=300)
-SCAN_INTERVAL_MINIMUM = timedelta(seconds=60)
-
-CONFIG_SCHEMA = vol.Schema(
-    {
-        DOMAIN: vol.Schema(
-            {
-                vol.Required(CONF_USERNAME): cv.string,
-                vol.Required(CONF_PASSWORD): cv.string,
-                vol.Optional(CONF_LOCATION_IDX, default=0): cv.positive_int,
-                vol.Optional(
-                    CONF_SCAN_INTERVAL, default=SCAN_INTERVAL_DEFAULT
-                ): vol.All(cv.time_period, vol.Range(min=SCAN_INTERVAL_MINIMUM)),
-            }
-        )
-    },
+CONFIG_SCHEMA: Final = vol.Schema(
+    vol.All(
+        cv.deprecated(DOMAIN, raise_if_present=False),
+        {
+            DOMAIN: vol.Schema(
+                {
+                    vol.Required(CONF_USERNAME): cv.string,
+                    vol.Required(CONF_PASSWORD): cv.string,
+                    vol.Optional(CONF_LOCATION_IDX, default=0): cv.positive_int,
+                    vol.Optional(
+                        CONF_SCAN_INTERVAL, default=SCAN_INTERVAL_DEFAULT
+                    ): vol.All(cv.time_period, vol.Range(min=SCAN_INTERVAL_MINIMUM)),
+                }
+            )
+        },
+    ),
     extra=vol.ALLOW_EXTRA,
 )
 
@@ -123,104 +124,64 @@ SET_ZONE_OVERRIDE_SCHEMA = vol.Schema(
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Import an evohome integration into config flow."""
+
+    _LOGGER.warning("Async_setup(%s, %s)", hass, config)
+
+    hass.data[DOMAIN] = {}  # why? (BTW: hass.data[DOMAIN] raises KeyError)
+
+    if DOMAIN in config and not hass.config_entries.async_entries(DOMAIN):
+        # perform a one-off import from the configuration.yaml file
+        hass.async_create_task(
+            hass.config_entries.flow.async_init(
+                DOMAIN,
+                context={"source": ce.SOURCE_IMPORT},
+                data=config[DOMAIN],
+            )
+        )
+
+    return True
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: ce.ConfigEntry) -> bool:
     """Create a (EMEA/EU-based) Honeywell TCC system."""
 
-    async def load_auth_tokens(store: Store) -> tuple[dict, dict | None]:
-        app_storage = await store.async_load()
-        tokens = dict(app_storage or {})
+    _LOGGER.error("Async_setup_entry(%s, %s)", hass, entry)
 
-        if tokens.pop(CONF_USERNAME, None) != config[DOMAIN][CONF_USERNAME]:
-            # any tokens won't be valid, and store might be corrupt
-            await store.async_save({})
-            return ({}, {})
-
-        # evohomeasync2 requires naive/local datetimes as strings
-        if tokens.get(ACCESS_TOKEN_EXPIRES) is not None and (
-            expires := dt_util.parse_datetime(tokens[ACCESS_TOKEN_EXPIRES])
-        ):
-            tokens[ACCESS_TOKEN_EXPIRES] = dt_aware_to_naive(expires)
-
-        user_data = tokens.pop(USER_DATA, {})
-        return (tokens, user_data)
-
-    store = Store[dict[str, Any]](hass, STORAGE_VER, STORAGE_KEY)
-    tokens, user_data = await load_auth_tokens(store)
-
-    client_v2 = evo.EvohomeClient(
-        config[DOMAIN][CONF_USERNAME],
-        config[DOMAIN][CONF_PASSWORD],
-        **tokens,
-        session=async_get_clientsession(hass),
-    )
+    broker = EvoBroker(hass, entry)
+    hass.data[DOMAIN] = {"broker": broker}
 
     try:
-        await client_v2.login()
-    except evo.AuthenticationFailed as err:
-        handle_exception(err)
-        return False
-    finally:
-        config[DOMAIN][CONF_PASSWORD] = "REDACTED"
-
-    loc_idx = config[DOMAIN][CONF_LOCATION_IDX]
-    try:
-        loc_config = client_v2.installation_info[loc_idx]
-    except IndexError:
-        _LOGGER.error(
-            (
-                "Config error: '%s' = %s, but the valid range is 0-%s. "
-                "Unable to continue. Fix any configuration errors and restart HA"
-            ),
-            CONF_LOCATION_IDX,
-            loc_idx,
-            len(client_v2.installation_info) - 1,
-        )
+        await broker.login()  # login, and get initial state
+    except evo.AuthenticationFailed:
         return False
 
-    if _LOGGER.isEnabledFor(logging.DEBUG):
-        loc_info = {
-            SZ_LOCATION_ID: loc_config[SZ_LOCATION_INFO][SZ_LOCATION_ID],
-            SZ_TIME_ZONE: loc_config[SZ_LOCATION_INFO][SZ_TIME_ZONE],
-        }
-        gwy_info = {
-            SZ_GATEWAY_ID: loc_config[GWS][0][SZ_GATEWAY_INFO][SZ_GATEWAY_ID],
-            TCS: loc_config[GWS][0][TCS],
-        }
-        _config = {
-            SZ_LOCATION_INFO: loc_info,
-            GWS: [{SZ_GATEWAY_INFO: gwy_info, TCS: loc_config[GWS][0][TCS]}],
-        }
-        _LOGGER.debug("Config = %s", _config)
-
-    client_v1 = ev1.EvohomeClient(
-        client_v2.username,
-        client_v2.password,
-        session_id=user_data.get(SZ_SESSION_ID) if user_data else None,  # STORAGE_VER 1
-        session=async_get_clientsession(hass),
-    )
-
-    hass.data[DOMAIN] = {}
-    hass.data[DOMAIN]["broker"] = broker = EvoBroker(
-        hass, client_v2, client_v1, store, config[DOMAIN]
-    )
-
-    await broker.save_auth_tokens()
-    await broker.async_update()  # get initial state
-
-    hass.async_create_task(
-        async_load_platform(hass, Platform.CLIMATE, DOMAIN, {}, config)
-    )
+    hass.async_create_task(async_load_platform(hass, Platform.CLIMATE, DOMAIN, {}, {}))
     if broker.tcs.hotwater:
         hass.async_create_task(
-            async_load_platform(hass, Platform.WATER_HEATER, DOMAIN, {}, config)
+            async_load_platform(hass, Platform.WATER_HEATER, DOMAIN, {}, {})
         )
-
-    async_track_time_interval(
-        hass, broker.async_update, config[DOMAIN][CONF_SCAN_INTERVAL]
-    )
 
     setup_service_functions(hass, broker)
 
     return True
+
+
+# async def async_update_listener(hass: HomeAssistant, entry: ce.ConfigEntry) -> None:
+# """Handle options update."""
+# hass.async_create_task(hass.config_entries.async_reload(entry.entry_id))
+
+
+# async def async_unload_entry(hass: HomeAssistant, entry: ce.ConfigEntry) -> bool:
+# """Unload a config entry."""
+# broker: RamsesBroker = hass.data[DOMAIN][entry.entry_id]
+# if not await broker.async_unload_platforms():
+#     return False
+# for svc in hass.services.async_services_for_domain(DOMAIN):
+#     hass.services.async_remove(DOMAIN, svc)
+# hass.data[DOMAIN].pop(entry.entry_id)
+#
+# return True
 
 
 @callback
@@ -274,7 +235,7 @@ def setup_service_functions(hass: HomeAssistant, broker: EvoBroker) -> None:
     hass.services.async_register(DOMAIN, SVC_REFRESH_SYSTEM, force_refresh)
 
     # Enumerate which operating modes are supported by this system
-    modes = broker.config[SZ_ALLOWED_SYSTEM_MODES]
+    modes = broker.tcs_config[SZ_ALLOWED_SYSTEM_MODES]
 
     # Not all systems support "AutoWithReset": register this handler only if required
     if [m[SZ_SYSTEM_MODE] for m in modes if m[SZ_SYSTEM_MODE] == SZ_AUTO_WITH_RESET]:
@@ -345,31 +306,131 @@ def setup_service_functions(hass: HomeAssistant, broker: EvoBroker) -> None:
 class EvoBroker:
     """Container for evohome client and data."""
 
-    def __init__(
-        self,
-        hass: HomeAssistant,
-        client: evo.EvohomeClient,
-        client_v1: ev1.EvohomeClient | None,
-        store: Store[dict[str, Any]],
-        params: ConfigType,
-    ) -> None:
-        """Initialize the evohome client and its data structure."""
+    client: evo.EvohomeClient
+    client_v1: ev1.EvohomeClient | None = None
+
+    loc: evo.Location
+    loc_utc_offset: timedelta
+
+    tcs: evo.ControlSystem
+    tcs_config: dict[str, Any]
+
+    def __init__(self, hass: HomeAssistant, entry: ce.ConfigEntry) -> None:
+        """Initialize the evohome broker and its data structures."""
+
         self.hass = hass
-        self.client = client
-        self.client_v1 = client_v1
-        self._store = store
-        self.params = params
+        self.entry = entry
 
-        loc_idx = params[CONF_LOCATION_IDX]
-        self._location: evo.Location = client.locations[loc_idx]
+        self.username: str = self.entry.data[CONF_USERNAME]
+        self.loc_idx: int = self.entry.data[CONF_LOCATION_IDX]
 
-        self.config = client.installation_info[loc_idx][GWS][0][TCS][0]
-        self.tcs: evo.ControlSystem = self._location._gateways[0]._control_systems[0]  # noqa: SLF001
-        self.tcs_utc_offset = timedelta(minutes=self._location.timeZone[UTC_OFFSET])
+        self._store: Store = Store(self.hass, STORAGE_VER, STORAGE_KEY)
+        self._tokens: dict[str, Any] = {}
+        self._session_id: str | None = None
+
         self.temps: dict[str, float | None] = {}
+
+    async def login(self) -> None:
+        """Start the evohome client and its data structure."""
+
+        # if self.client is not None:  # TO-DO: should not be needed
+        #     return
+
+        await self.load_auth_tokens()
+
+        self.client = evo.EvohomeClient(
+            self.username,
+            self.entry.data[CONF_PASSWORD],
+            **self._tokens,
+            session=async_get_clientsession(self.hass),
+        )
+
+        try:
+            await self.client.login()  # may: raise evo.AuthenticationFailed
+        except evo.AuthenticationFailed as err:
+            handle_exception(err)
+            raise
+
+        try:
+            _ = self.client.installation_info[self.loc_idx]
+        except IndexError as err:
+            msg = (
+                f"Config error: '{CONF_LOCATION_IDX}' = {self.loc_idx}, "
+                f"but the valid range is 0-{len(self.client.installation_info) - 1}. "
+                "Unable to continue. Fix any configuration errors and restart HA"
+            )
+            raise evo.AuthenticationFailed(msg) from err
+
+        await self.save_auth_tokens()
+
+    async def start(self) -> None:
+        """Start the evohome client and its data structure."""
+
+        assert self.client is not None  # mypy check
+
+        if _LOGGER.isEnabledFor(logging.DEBUG):
+            loc_config = self.client.installation_info[self.loc_idx]
+
+            loc_info = {
+                SZ_LOCATION_ID: loc_config[SZ_LOCATION_INFO][SZ_LOCATION_ID],
+                SZ_TIME_ZONE: loc_config[SZ_LOCATION_INFO][SZ_TIME_ZONE],
+            }
+            gwy_info = {
+                SZ_GATEWAY_ID: loc_config[GWS][0][SZ_GATEWAY_INFO][SZ_GATEWAY_ID],
+                TCS: loc_config[GWS][0][TCS],
+            }
+            _config = {
+                SZ_LOCATION_INFO: loc_info,
+                GWS: [{SZ_GATEWAY_INFO: gwy_info, TCS: loc_config[GWS][0][TCS]}],
+            }
+            _LOGGER.debug("Config = %s", _config)
+
+        self.loc = self.client.locations[self.loc_idx]
+        self.loc_utc_offset = timedelta(minutes=self.loc.timeZone[UTC_OFFSET])
+
+        self.tcs = self.loc._gateways[0]._control_systems[0]  # noqa: SLF001
+        self.tcs_config = self.client.installation_info[self.loc_idx][GWS][0][TCS][0]
+
+        self.client_v1 = ev1.EvohomeClient(
+            self.client.username,
+            self.client.password,
+            session_id=self._session_id,
+            session=async_get_clientsession(self.hass),
+        )
+
+        await self.save_auth_tokens()
+
+        await self.async_update()  # get initial state
+        async_track_time_interval(
+            self.hass, self.async_update, self.entry.options[CONF_SCAN_INTERVAL]
+        )
+
+    async def load_auth_tokens(self) -> None:
+        """Load access tokens and session IDs from the store."""
+
+        app_storage = dict(await self._store.async_load() or {})  # TO-DO: why dict()
+
+        if app_storage.pop(CONF_USERNAME, None) != self.username:
+            # any tokens won't be valid, and store might be corrupt
+            # await self._store.async_save({})  # TO-DO: needed?
+            self._tokens = {}
+            self._session_id = None
+            return
+
+        # evohomeasync2 requires naive/local datetimes as strings
+        if app_storage.get(ACCESS_TOKEN_EXPIRES) is not None and (
+            expires := dt_util.parse_datetime(app_storage[ACCESS_TOKEN_EXPIRES])
+        ):
+            app_storage[ACCESS_TOKEN_EXPIRES] = dt_aware_to_naive(expires)
+
+        user_data: dict[str, str] = app_storage.pop(USER_DATA, {})
+
+        self._tokens = app_storage
+        self._session_id = user_data.get(SZ_SESSION_ID)
 
     async def save_auth_tokens(self) -> None:
         """Save access tokens and session IDs to the store for later use."""
+
         # evohomeasync2 uses naive/local datetimes
         access_token_expires = dt_local_to_aware(
             self.client.access_token_expires  # type: ignore[arg-type]
@@ -452,7 +513,7 @@ class EvoBroker:
             raise
 
         else:
-            if str(self.client_v1.location_id) != self._location.locationId:
+            if str(self.client_v1.location_id) != self.loc.locationId:
                 _LOGGER.warning(
                     "The v2 API's configured location doesn't match "
                     "the v1 API's default location (there is more than one location), "
@@ -474,7 +535,7 @@ class EvoBroker:
         access_token = self.client.access_token  # maybe receive a new token?
 
         try:
-            status = await self._location.refresh_status()
+            status = await self.loc.refresh_status()
         except evo.RequestFailed as err:
             handle_exception(err)
         else:
@@ -508,13 +569,13 @@ class EvoDevice(Entity):
 
     def __init__(
         self,
-        evo_broker: EvoBroker,
+        broker: EvoBroker,
         evo_device: evo.ControlSystem | evo.HotWater | evo.Zone,
     ) -> None:
         """Initialize the evohome entity."""
         self._evo_device = evo_device
-        self._evo_broker = evo_broker
-        self._evo_tcs = evo_broker.tcs
+        self._evo_broker = broker
+        self._evo_tcs = broker.tcs
 
         self._device_state_attrs: dict[str, Any] = {}
 
@@ -564,11 +625,9 @@ class EvoChild(EvoDevice):
 
     _evo_id: str  # mypy hint
 
-    def __init__(
-        self, evo_broker: EvoBroker, evo_device: evo.HotWater | evo.Zone
-    ) -> None:
+    def __init__(self, broker: EvoBroker, evo_device: evo.HotWater | evo.Zone) -> None:
         """Initialize a evohome Controller (hub)."""
-        super().__init__(evo_broker, evo_device)
+        super().__init__(broker, evo_device)
 
         self._schedule: dict[str, Any] = {}
         self._setpoints: dict[str, Any] = {}
@@ -629,7 +688,7 @@ class EvoChild(EvoDevice):
                 )
                 assert switchpoint_time_of_day is not None  # mypy check
                 dt_aware = _dt_evo_to_aware(
-                    switchpoint_time_of_day, self._evo_broker.tcs_utc_offset
+                    switchpoint_time_of_day, self._evo_broker.loc_utc_offset
                 )
 
                 self._setpoints[f"{key}_sp_from"] = dt_aware.isoformat()

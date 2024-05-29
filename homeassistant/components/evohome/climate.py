@@ -43,7 +43,6 @@ from . import (
     ATTR_DURATION_UNTIL,
     ATTR_SYSTEM_MODE,
     ATTR_ZONE_TEMP,
-    CONF_LOCATION_IDX,
     SVC_RESET_ZONE_OVERRIDE,
     SVC_SET_SYSTEM_MODE,
     EvoChild,
@@ -117,7 +116,7 @@ async def async_setup_platform(
         broker.tcs.modelType,
         broker.tcs.systemId,
         broker.tcs.location.name,
-        broker.params[CONF_LOCATION_IDX],
+        broker.loc_idx,
     )
 
     entities: list[EvoClimateEntity] = [EvoController(broker, broker.tcs)]
@@ -172,10 +171,10 @@ class EvoZone(EvoChild, EvoClimateEntity):
 
     _evo_device: evo.Zone  # mypy hint
 
-    def __init__(self, evo_broker: EvoBroker, evo_device: evo.Zone) -> None:
+    def __init__(self, broker: EvoBroker, evo_device: evo.Zone) -> None:
         """Initialize a Honeywell TCC Zone."""
 
-        super().__init__(evo_broker, evo_device)
+        super().__init__(broker, evo_device)
         self._evo_id = evo_device.zoneId
 
         if evo_device.modelType.startswith("VisionProWifi"):
@@ -184,7 +183,7 @@ class EvoZone(EvoChild, EvoClimateEntity):
         else:
             self._attr_unique_id = evo_device.zoneId
 
-        if evo_broker.client_v1:
+        if broker.client_v1:
             self._attr_precision = PRECISION_TENTHS
         else:
             self._attr_precision = self._evo_device.setpointCapabilities[
@@ -362,16 +361,16 @@ class EvoController(EvoClimateEntity):
 
     _evo_device: evo.ControlSystem  # mypy hint
 
-    def __init__(self, evo_broker: EvoBroker, evo_device: evo.ControlSystem) -> None:
+    def __init__(self, broker: EvoBroker, evo_device: evo.ControlSystem) -> None:
         """Initialize a Honeywell TCC Controller/Location."""
 
-        super().__init__(evo_broker, evo_device)
+        super().__init__(broker, evo_device)
         self._evo_id = evo_device.systemId
 
         self._attr_unique_id = evo_device.systemId
         self._attr_name = evo_device.location.name
 
-        modes = [m[SZ_SYSTEM_MODE] for m in evo_broker.config[SZ_ALLOWED_SYSTEM_MODES]]
+        modes = [m[SZ_SYSTEM_MODE] for m in broker.tcs_config[SZ_ALLOWED_SYSTEM_MODES]]
         self._attr_preset_modes = [
             TCS_PRESET_TO_HA[m] for m in modes if m in list(TCS_PRESET_TO_HA)
         ]
