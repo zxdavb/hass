@@ -10,14 +10,23 @@ from typing import Any
 import evohomeasync as ev1
 from evohomeasync.schema import SZ_ID, SZ_SESSION_ID, SZ_TEMP
 import evohomeasync2 as evo
+from evohomeasync2.schema.const import (
+    SZ_GATEWAY_ID,
+    SZ_GATEWAY_INFO,
+    SZ_LOCATION_ID,
+    SZ_LOCATION_INFO,
+    SZ_TIME_ZONE,
+)
 
-from homeassistant.const import CONF_USERNAME
+import homeassistant.config_entries as ce
+from homeassistant.const import CONF_PASSWORD, CONF_SCAN_INTERVAL, CONF_USERNAME
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.dispatcher import async_dispatcher_send
-from homeassistant.helpers.event import async_call_later
+from homeassistant.helpers.event import async_call_later, async_track_time_interval
 from homeassistant.helpers.storage import Store
-from homeassistant.helpers.typing import ConfigType
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+import homeassistant.util.dt as dt_util
 
 from .const import (
     ACCESS_TOKEN,
@@ -26,11 +35,13 @@ from .const import (
     DOMAIN,
     GWS,
     REFRESH_TOKEN,
+    STORAGE_KEY,
+    STORAGE_VER,
     TCS,
     USER_DATA,
     UTC_OFFSET,
 )
-from .helpers import dt_local_to_aware, handle_exception
+from .helpers import dt_aware_to_naive, dt_local_to_aware, handle_exception
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -38,31 +49,131 @@ _LOGGER = logging.getLogger(__name__)
 class EvoBroker:
     """Container for evohome client and data."""
 
-    def __init__(
-        self,
-        hass: HomeAssistant,
-        client: evo.EvohomeClient,
-        client_v1: ev1.EvohomeClient | None,
-        store: Store[dict[str, Any]],
-        params: ConfigType,
-    ) -> None:
-        """Initialize the evohome client and its data structure."""
+    client: evo.EvohomeClient
+    client_v1: ev1.EvohomeClient | None = None
+
+    loc: evo.Location
+    loc_utc_offset: timedelta
+
+    tcs: evo.ControlSystem
+    tcs_config: dict[str, Any]
+
+    def __init__(self, hass: HomeAssistant, entry: ce.ConfigEntry) -> None:
+        """Initialize the evohome broker and its data structures."""
+
         self.hass = hass
-        self.client = client
-        self.client_v1 = client_v1
-        self._store = store
-        self.params = params
+        self.entry = entry
 
-        loc_idx = params[CONF_LOCATION_IDX]
-        self._location: evo.Location = client.locations[loc_idx]
+        self.username: str = self.entry.data[CONF_USERNAME]
+        self.loc_idx: int = self.entry.data[CONF_LOCATION_IDX]
 
-        self.config = client.installation_info[loc_idx][GWS][0][TCS][0]
-        self.tcs: evo.ControlSystem = self._location._gateways[0]._control_systems[0]  # noqa: SLF001
-        self.tcs_utc_offset = timedelta(minutes=self._location.timeZone[UTC_OFFSET])
+        self._store: Store = Store(self.hass, STORAGE_VER, STORAGE_KEY)
+        self._tokens: dict[str, Any] = {}
+        self._session_id: str | None = None
+
         self.temps: dict[str, float | None] = {}
+
+    async def login(self) -> None:
+        """Start the evohome client and its data structure."""
+
+        # if self.client is not None:  # TO-DO: should not be needed
+        #     return
+
+        await self.load_auth_tokens()
+
+        self.client = evo.EvohomeClient(
+            self.username,
+            self.entry.data[CONF_PASSWORD],
+            **self._tokens,
+            session=async_get_clientsession(self.hass),
+        )
+
+        try:
+            await self.client.login()  # may: raise evo.AuthenticationFailed
+        except evo.AuthenticationFailed as err:
+            handle_exception(err)
+            raise
+
+        try:
+            _ = self.client.installation_info[self.loc_idx]
+        except IndexError as err:
+            msg = (
+                f"Config error: '{CONF_LOCATION_IDX}' = {self.loc_idx}, "
+                f"but the valid range is 0-{len(self.client.installation_info) - 1}. "
+                "Unable to continue. Fix any configuration errors and restart HA"
+            )
+            raise evo.AuthenticationFailed(msg) from err
+
+        await self.save_auth_tokens()
+
+    async def start(self) -> None:
+        """Start the evohome client and its data structure."""
+
+        assert self.client is not None  # mypy check
+
+        if _LOGGER.isEnabledFor(logging.DEBUG):
+            loc_config = self.client.installation_info[self.loc_idx]
+
+            loc_info = {
+                SZ_LOCATION_ID: loc_config[SZ_LOCATION_INFO][SZ_LOCATION_ID],
+                SZ_TIME_ZONE: loc_config[SZ_LOCATION_INFO][SZ_TIME_ZONE],
+            }
+            gwy_info = {
+                SZ_GATEWAY_ID: loc_config[GWS][0][SZ_GATEWAY_INFO][SZ_GATEWAY_ID],
+                TCS: loc_config[GWS][0][TCS],
+            }
+            _config = {
+                SZ_LOCATION_INFO: loc_info,
+                GWS: [{SZ_GATEWAY_INFO: gwy_info, TCS: loc_config[GWS][0][TCS]}],
+            }
+            _LOGGER.debug("Config = %s", _config)
+
+        self.loc = self.client.locations[self.loc_idx]
+        self.loc_utc_offset = timedelta(minutes=self.loc.timeZone[UTC_OFFSET])
+
+        self.tcs = self.loc._gateways[0]._control_systems[0]  # noqa: SLF001
+        self.tcs_config = self.client.installation_info[self.loc_idx][GWS][0][TCS][0]
+
+        self.client_v1 = ev1.EvohomeClient(
+            self.client.username,
+            self.client.password,
+            session_id=self._session_id,
+            session=async_get_clientsession(self.hass),
+        )
+
+        await self.save_auth_tokens()
+
+        await self.async_update()  # get initial state
+        async_track_time_interval(
+            self.hass, self.async_update, self.entry.options[CONF_SCAN_INTERVAL]
+        )
+
+    async def load_auth_tokens(self) -> None:
+        """Load access tokens and session IDs from the store."""
+
+        app_storage = dict(await self._store.async_load() or {})  # TO-DO: why dict()
+
+        if app_storage.pop(CONF_USERNAME, None) != self.username:
+            # any tokens won't be valid, and store might be corrupt
+            # await self._store.async_save({})  # TO-DO: needed?
+            self._tokens = {}
+            self._session_id = None
+            return
+
+        # evohomeasync2 requires naive/local datetimes as strings
+        if app_storage.get(ACCESS_TOKEN_EXPIRES) is not None and (
+            expires := dt_util.parse_datetime(app_storage[ACCESS_TOKEN_EXPIRES])
+        ):
+            app_storage[ACCESS_TOKEN_EXPIRES] = dt_aware_to_naive(expires)
+
+        user_data: dict[str, str] = app_storage.pop(USER_DATA, {})
+
+        self._tokens = app_storage
+        self._session_id = user_data.get(SZ_SESSION_ID)
 
     async def save_auth_tokens(self) -> None:
         """Save access tokens and session IDs to the store for later use."""
+
         # evohomeasync2 uses naive/local datetimes
         access_token_expires = dt_local_to_aware(
             self.client.access_token_expires  # type: ignore[arg-type]
@@ -145,7 +256,7 @@ class EvoBroker:
             raise
 
         else:
-            if str(self.client_v1.location_id) != self._location.locationId:
+            if str(self.client_v1.location_id) != self.loc.locationId:
                 _LOGGER.warning(
                     "The v2 API's configured location doesn't match "
                     "the v1 API's default location (there is more than one location), "
@@ -167,7 +278,7 @@ class EvoBroker:
         access_token = self.client.access_token  # maybe receive a new token?
 
         try:
-            status = await self._location.refresh_status()
+            status = await self.loc.refresh_status()
         except evo.RequestFailed as err:
             handle_exception(err)
         else:

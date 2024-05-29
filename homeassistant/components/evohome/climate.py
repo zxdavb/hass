@@ -44,7 +44,6 @@ from .const import (
     ATTR_DURATION_UNTIL,
     ATTR_SYSTEM_MODE,
     ATTR_ZONE_TEMP,
-    CONF_LOCATION_IDX,
     DOMAIN,
     EVO_AUTO,
     EVO_AUTOECO,
@@ -113,7 +112,7 @@ async def async_setup_platform(
         broker.tcs.modelType,
         broker.tcs.systemId,
         broker.tcs.location.name,
-        broker.params[CONF_LOCATION_IDX],
+        broker.loc_idx,
     )
 
     entities: list[EvoClimateEntity] = [EvoController(broker, broker.tcs)]
@@ -367,7 +366,9 @@ class EvoController(EvoClimateEntity):
         self._attr_unique_id = evo_device.systemId
         self._attr_name = evo_device.location.name
 
-        modes = [m[SZ_SYSTEM_MODE] for m in evo_broker.config[SZ_ALLOWED_SYSTEM_MODES]]
+        modes = [
+            m[SZ_SYSTEM_MODE] for m in evo_broker.tcs_config[SZ_ALLOWED_SYSTEM_MODES]
+        ]
         self._attr_preset_modes = [
             TCS_PRESET_TO_HA[m] for m in modes if m in list(TCS_PRESET_TO_HA)
         ]

@@ -10,39 +10,26 @@ from datetime import datetime, timedelta
 import logging
 from typing import Any
 
-import evohomeasync as ev1
-from evohomeasync.schema import SZ_SESSION_ID
 import evohomeasync2 as evo
 from evohomeasync2.schema.const import (
     SZ_ALLOWED_SYSTEM_MODES,
     SZ_AUTO_WITH_RESET,
     SZ_CAN_BE_TEMPORARY,
-    SZ_GATEWAY_ID,
-    SZ_GATEWAY_INFO,
     SZ_HEAT_SETPOINT,
-    SZ_LOCATION_ID,
-    SZ_LOCATION_INFO,
     SZ_SETPOINT_STATUS,
     SZ_STATE_STATUS,
     SZ_SYSTEM_MODE,
     SZ_SYSTEM_MODE_STATUS,
     SZ_TIME_UNTIL,
-    SZ_TIME_ZONE,
     SZ_TIMING_MODE,
     SZ_UNTIL,
 )
 import voluptuous as vol
 
-from homeassistant.const import (
-    ATTR_ENTITY_ID,
-    CONF_PASSWORD,
-    CONF_SCAN_INTERVAL,
-    CONF_USERNAME,
-    Platform,
-)
+import homeassistant.config_entries as ce
+from homeassistant.const import ATTR_ENTITY_ID, CONF_SCAN_INTERVAL, Platform
 from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.discovery import async_load_platform
 from homeassistant.helpers.dispatcher import (
@@ -51,29 +38,21 @@ from homeassistant.helpers.dispatcher import (
 )
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.service import verify_domain_control
-from homeassistant.helpers.storage import Store
 from homeassistant.helpers.typing import ConfigType
 import homeassistant.util.dt as dt_util
 
 from .const import (
-    ACCESS_TOKEN_EXPIRES,
     ATTR_DURATION_DAYS,
     ATTR_DURATION_HOURS,
     ATTR_SYSTEM_MODE,
-    CONF_LOCATION_IDX,
     CONFIG_SCHEMA,
     DOMAIN,
-    GWS,
     RESET_ZONE_OVERRIDE_SCHEMA,
     SET_ZONE_OVERRIDE_SCHEMA,
-    STORAGE_KEY,
-    STORAGE_VER,
-    TCS,
-    USER_DATA,
     EvoService,
 )
 from .coordinator import EvoBroker, EvoCoordinator
-from .helpers import convert_dict, convert_until, dt_aware_to_naive, handle_exception
+from .helpers import convert_dict, convert_until
 
 __all__ = ["CONFIG_SCHEMA", "DOMAIN", "EvoChild", "EvoDevice", "async_setup"]
 
@@ -82,108 +61,76 @@ _LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Import an evohome integration into config flow."""
+
+    _LOGGER.warning("Async_setup(%s, %s)", hass, config)
+
+    hass.data[DOMAIN] = {}  # why? (BTW: hass.data[DOMAIN] raises KeyError)
+
+    if DOMAIN in config and not hass.config_entries.async_entries(DOMAIN):
+        # perform a one-off import from the configuration.yaml file
+        hass.async_create_task(
+            hass.config_entries.flow.async_init(
+                DOMAIN,
+                context={"source": ce.SOURCE_IMPORT},
+                data=config[DOMAIN],
+            )
+        )
+
+    return True
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: ce.ConfigEntry) -> bool:
     """Create a (EMEA/EU-based) Honeywell TCC system."""
 
-    async def load_auth_tokens(store: Store) -> tuple[dict, dict | None]:
-        app_storage = await store.async_load()
-        tokens = dict(app_storage or {})
+    _LOGGER.error("Async_setup_entry(%s, %s)", hass, entry)
 
-        if tokens.pop(CONF_USERNAME, None) != config[DOMAIN][CONF_USERNAME]:
-            # any tokens won't be valid, and store might be corrupt
-            await store.async_save({})
-            return ({}, {})
-
-        # evohomeasync2 requires naive/local datetimes as strings
-        if tokens.get(ACCESS_TOKEN_EXPIRES) is not None and (
-            expires := dt_util.parse_datetime(tokens[ACCESS_TOKEN_EXPIRES])
-        ):
-            tokens[ACCESS_TOKEN_EXPIRES] = dt_aware_to_naive(expires)
-
-        user_data = tokens.pop(USER_DATA, {})
-        return (tokens, user_data)
-
-    store = Store[dict[str, Any]](hass, STORAGE_VER, STORAGE_KEY)
-    tokens, user_data = await load_auth_tokens(store)
-
-    client_v2 = evo.EvohomeClient(
-        config[DOMAIN][CONF_USERNAME],
-        config[DOMAIN][CONF_PASSWORD],
-        **tokens,
-        session=async_get_clientsession(hass),
-    )
+    broker = EvoBroker(hass, entry)
+    hass.data[DOMAIN] = {"broker": broker}
 
     try:
-        await client_v2.login()
-    except evo.AuthenticationFailed as err:
-        handle_exception(err)
+        await broker.login()  # login, and get initial state
+    except evo.AuthenticationFailed:
         return False
-    finally:
-        config[DOMAIN][CONF_PASSWORD] = "REDACTED"
-
-    loc_idx = config[DOMAIN][CONF_LOCATION_IDX]
-    try:
-        loc_config = client_v2.installation_info[loc_idx]
-    except IndexError:
-        _LOGGER.error(
-            (
-                "Config error: '%s' = %s, but the valid range is 0-%s. "
-                "Unable to continue. Fix any configuration errors and restart HA"
-            ),
-            CONF_LOCATION_IDX,
-            loc_idx,
-            len(client_v2.installation_info) - 1,
-        )
-        return False
-
-    if _LOGGER.isEnabledFor(logging.DEBUG):
-        loc_info = {
-            SZ_LOCATION_ID: loc_config[SZ_LOCATION_INFO][SZ_LOCATION_ID],
-            SZ_TIME_ZONE: loc_config[SZ_LOCATION_INFO][SZ_TIME_ZONE],
-        }
-        gwy_info = {
-            SZ_GATEWAY_ID: loc_config[GWS][0][SZ_GATEWAY_INFO][SZ_GATEWAY_ID],
-            TCS: loc_config[GWS][0][TCS],
-        }
-        _config = {
-            SZ_LOCATION_INFO: loc_info,
-            GWS: [{SZ_GATEWAY_INFO: gwy_info, TCS: loc_config[GWS][0][TCS]}],
-        }
-        _LOGGER.debug("Config = %s", _config)
-
-    client_v1 = ev1.EvohomeClient(
-        client_v2.username,
-        client_v2.password,
-        session_id=user_data.get(SZ_SESSION_ID) if user_data else None,  # STORAGE_VER 1
-        session=async_get_clientsession(hass),
-    )
 
     hass.data[DOMAIN] = {}
-    hass.data[DOMAIN]["broker"] = broker = EvoBroker(
-        hass, client_v2, client_v1, store, config[DOMAIN]
-    )
-
-    await broker.save_auth_tokens()
+    hass.data[DOMAIN]["broker"] = broker = EvoBroker(hass, entry)
 
     hass.data[DOMAIN]["coordinator"] = coordinator = EvoCoordinator(
         hass,
         _LOGGER,
         name=f"{DOMAIN}_coordinator",
-        update_interval=config[DOMAIN][CONF_SCAN_INTERVAL],
+        update_interval=entry.options[CONF_SCAN_INTERVAL],
         update_method=broker.async_update,
     )
     await coordinator.async_refresh()  # get initial state
 
-    hass.async_create_task(
-        async_load_platform(hass, Platform.CLIMATE, DOMAIN, {}, config)
-    )
+    hass.async_create_task(async_load_platform(hass, Platform.CLIMATE, DOMAIN, {}, {}))
     if broker.tcs.hotwater:
         hass.async_create_task(
-            async_load_platform(hass, Platform.WATER_HEATER, DOMAIN, {}, config)
+            async_load_platform(hass, Platform.WATER_HEATER, DOMAIN, {}, {})
         )
 
     _setup_service_functions(hass, broker)
 
     return True
+
+
+# async def async_update_listener(hass: HomeAssistant, entry: ce.ConfigEntry) -> None:
+# """Handle options update."""
+# hass.async_create_task(hass.config_entries.async_reload(entry.entry_id))
+
+
+# async def async_unload_entry(hass: HomeAssistant, entry: ce.ConfigEntry) -> bool:
+# """Unload a config entry."""
+# broker: RamsesBroker = hass.data[DOMAIN][entry.entry_id]
+# if not await broker.async_unload_platforms():
+#     return False
+# for svc in hass.services.async_services_for_domain(DOMAIN):
+#     hass.services.async_remove(DOMAIN, svc)
+# hass.data[DOMAIN].pop(entry.entry_id)
+#
+# return True
 
 
 @callback
@@ -237,7 +184,7 @@ def _setup_service_functions(hass: HomeAssistant, broker: EvoBroker) -> None:
     hass.services.async_register(DOMAIN, EvoService.REFRESH_SYSTEM, force_refresh)
 
     # Enumerate which operating modes are supported by this system
-    modes = broker.config[SZ_ALLOWED_SYSTEM_MODES]
+    modes = broker.tcs_config[SZ_ALLOWED_SYSTEM_MODES]
 
     # Not all systems support "AutoWithReset": register this handler only if required
     if [m[SZ_SYSTEM_MODE] for m in modes if m[SZ_SYSTEM_MODE] == SZ_AUTO_WITH_RESET]:
@@ -440,7 +387,7 @@ class EvoChild(EvoDevice):
                 )
                 assert switchpoint_time_of_day is not None  # mypy check
                 dt_aware = _dt_evo_to_aware(
-                    switchpoint_time_of_day, self._evo_broker.tcs_utc_offset
+                    switchpoint_time_of_day, self._evo_broker.loc_utc_offset
                 )
 
                 self._setpoints[f"{key}_sp_from"] = dt_aware.isoformat()
