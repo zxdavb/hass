@@ -15,7 +15,9 @@ from evohomeasync2.schemas.typedefs import DayOfWeekDhwT
 from homeassistant.core import callback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .const import FAULTS_BREAKS_IN_HA_VERSION
 from .coordinator import EvoDataUpdateCoordinator
+from .helpers import async_create_deprecation_issue_once
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -59,7 +61,14 @@ class EvoEntity(CoordinatorEntity[EvoDataUpdateCoordinator]):
 
     @property
     def extra_state_attributes(self) -> Mapping[str, Any]:
-        """Return the evohome-specific state attributes."""
+        """Return the evohome-specific state attributes (DEPRECATED)."""
+        if "activeFaults" in self._device_state_attrs:
+            async_create_deprecation_issue_once(
+                self.hass,
+                "deprecated_extra_state_attrs_faults",
+                FAULTS_BREAKS_IN_HA_VERSION,
+                translation_key="deprecated_extra_state_attrs_faults",
+            )
         return {"status": self._device_state_attrs}
 
     @callback

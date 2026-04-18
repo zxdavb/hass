@@ -23,7 +23,11 @@ from homeassistant.components.climate import (
     HVACMode,
 )
 from homeassistant.components.evohome.climate import PRESET_RESET
-from homeassistant.components.evohome.const import DOMAIN, RESET_BREAKS_IN_HA_VERSION
+from homeassistant.components.evohome.const import (
+    DOMAIN,
+    FAULTS_BREAKS_IN_HA_VERSION,
+    RESET_BREAKS_IN_HA_VERSION,
+)
 from homeassistant.const import (
     ATTR_ENTITY_ID,
     ATTR_TEMPERATURE,
@@ -279,6 +283,33 @@ async def test_ctl_preset_reset_deprecated(
     assert issue.translation_key == "deprecated_preset_reset"
     assert issue.translation_placeholders == {
         "breaks_in_ha_version": RESET_BREAKS_IN_HA_VERSION,
+    }
+
+
+@pytest.mark.parametrize("install", ["default"])
+@pytest.mark.usefixtures("evohome")
+async def test_extra_state_attrs_faults_deprecated(
+    hass: HomeAssistant,
+    zone_id: str,
+    issue_registry: ir.IssueRegistry,
+) -> None:
+    """Test the faults deprecation issue IS raised for Climate zone entities.
+
+    EvoChild._handle_coordinator_update always sets the "activeFaults" key in
+    _device_state_attrs, so EvoEntity.extra_state_attributes always triggers
+    the deprecation issue whenever a zone (or DHW) writes its state.
+    """
+    state = hass.states.get(zone_id)
+    assert state is not None
+    assert "activeFaults" in state.attributes.get("status", {})
+
+    issue = issue_registry.async_get_issue(
+        DOMAIN, "deprecated_extra_state_attrs_faults"
+    )
+    assert issue is not None
+    assert issue.translation_key == "deprecated_extra_state_attrs_faults"
+    assert issue.translation_placeholders == {
+        "breaks_in_ha_version": FAULTS_BREAKS_IN_HA_VERSION,
     }
 
 

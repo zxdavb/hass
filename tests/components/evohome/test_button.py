@@ -130,3 +130,21 @@ async def test_dhw_reset_button_press(
         )
 
         mock_fcn.assert_awaited_once_with()
+
+
+@pytest.mark.parametrize("install", ["default"])
+@pytest.mark.usefixtures("evohome")
+async def test_extra_state_attrs_faults_not_deprecated(
+    hass: HomeAssistant,
+    system_button_id: str,
+) -> None:
+    """Test that Button entities don't expose activeFaults in their state attributes.
+
+    EvoResetButtonBase inherits EvoEntity.extra_state_attributes but has
+    _evo_state_attr_names = (), so _handle_coordinator_update never puts
+    "activeFaults" into _device_state_attrs.  The deprecation guard in
+    extra_state_attributes therefore never fires for button entities.
+    """
+    state = hass.states.get(system_button_id)
+    assert state is not None
+    assert "activeFaults" not in state.attributes.get("status", {})
