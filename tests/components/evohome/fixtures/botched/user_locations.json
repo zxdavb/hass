@@ -340,10 +340,37 @@
             ]
           }
         ]
+      }
+    ]
+  },
+  {
+    "locationInfo": {
+      "locationId": "4400000",
+      "name": "Empty Gateway House",
+      "streetAddress": "1 Main Street",
+      "city": "London",
+      "country": "UnitedKingdom",
+      "postcode": "E1 1AA",
+      "locationType": "Residential",
+      "timeZone": {
+        "timeZoneId": "PacificSAStandardTime",
+        "displayName": "(UTC-04:00) Santiago",
+        "offsetMinutes": -240,
+        "currentOffsetMinutes": -180,
+        "supportsDaylightSaving": true
       },
+      "useDaylightSaveSwitching": true,
+      "locationOwner": {
+        "userId": "2263181",
+        "username": "user_2263181@gmail.com",
+        "firstname": "John",
+        "lastname": "Smith"
+      }
+    },
+    "gateways": [
       {
         "gatewayInfo": {
-          "gatewayId": "4400000",
+          "gatewayId": "4400001",
           "mac": "00D02DEE0044",
           "crc": "1234",
           "isWiFi": false
