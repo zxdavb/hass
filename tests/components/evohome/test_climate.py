@@ -99,7 +99,9 @@ async def test_ctl_set_hvac_mode(
     results = []
 
     # SERVICE_SET_HVAC_MODE: HVACMode.OFF
-    with patch("evohomeasync2.control_system.ControlSystem.set_mode") as mock_fcn:
+    with patch(
+        "evohomeasync2.control_system.ControlSystem.set_system_mode"
+    ) as mock_fcn:
         await hass.services.async_call(
             CLIMATE_DOMAIN,
             SERVICE_SET_HVAC_MODE,
@@ -111,14 +113,16 @@ async def test_ctl_set_hvac_mode(
         )
 
         try:
-            mock_fcn.assert_awaited_once_with("heating_off", until=None)
+            mock_fcn.assert_awaited_once_with("heating_off", duration=None, period=None)
         except AssertionError:
-            mock_fcn.assert_awaited_once_with("off", until=None)
+            mock_fcn.assert_awaited_once_with("off", duration=None, period=None)
 
         results.append(mock_fcn.await_args.args)  # type: ignore[union-attr]
 
     # SERVICE_SET_HVAC_MODE: HVACMode.HEAT
-    with patch("evohomeasync2.control_system.ControlSystem.set_mode") as mock_fcn:
+    with patch(
+        "evohomeasync2.control_system.ControlSystem.set_system_mode"
+    ) as mock_fcn:
         await hass.services.async_call(
             CLIMATE_DOMAIN,
             SERVICE_SET_HVAC_MODE,
@@ -130,9 +134,9 @@ async def test_ctl_set_hvac_mode(
         )
 
         try:
-            mock_fcn.assert_awaited_once_with("auto", until=None)
+            mock_fcn.assert_awaited_once_with("auto", duration=None, period=None)
         except AssertionError:
-            mock_fcn.assert_awaited_once_with("heat", until=None)
+            mock_fcn.assert_awaited_once_with("heat", duration=None, period=None)
 
         results.append(mock_fcn.await_args.args)  # type: ignore[union-attr]
 
@@ -170,7 +174,9 @@ async def test_ctl_turn_off(
     results = []
 
     # SERVICE_TURN_OFF
-    with patch("evohomeasync2.control_system.ControlSystem.set_mode") as mock_fcn:
+    with patch(
+        "evohomeasync2.control_system.ControlSystem.set_system_mode"
+    ) as mock_fcn:
         await hass.services.async_call(
             CLIMATE_DOMAIN,
             SERVICE_TURN_OFF,
@@ -181,9 +187,9 @@ async def test_ctl_turn_off(
         )
 
         try:
-            mock_fcn.assert_awaited_once_with("heating_off", until=None)
+            mock_fcn.assert_awaited_once_with("heating_off", duration=None, period=None)
         except AssertionError:
-            mock_fcn.assert_awaited_once_with("off", until=None)
+            mock_fcn.assert_awaited_once_with("off", duration=None, period=None)
 
         results.append(mock_fcn.await_args.args)  # type: ignore[union-attr]
 
@@ -199,7 +205,7 @@ async def test_ctl_invalid_system_mode(
 
     with (
         patch(
-            "evohomeasync2.control_system.ControlSystem.set_mode",
+            "evohomeasync2.control_system.ControlSystem.set_system_mode",
             side_effect=evo_exc.InvalidModeRequestError("Unsupported mode: xxx"),
         ),
         pytest.raises(ServiceValidationError) as exc_info,
@@ -226,7 +232,7 @@ async def test_ctl_authentication_failed(
     # AuthenticationFailedError is a subclass of ApiCallFailedError, which is only logged
     with (
         patch(
-            "evohomeasync2.control_system.ControlSystem.set_mode",
+            "evohomeasync2.control_system.ControlSystem.set_system_mode",
             side_effect=evo_exc.AuthenticationFailedError("Authentication failed"),
         ),
         pytest.raises(evo_exc.AuthenticationFailedError),
@@ -252,7 +258,9 @@ async def test_ctl_turn_on(
     results = []
 
     # SERVICE_TURN_ON
-    with patch("evohomeasync2.control_system.ControlSystem.set_mode") as mock_fcn:
+    with patch(
+        "evohomeasync2.control_system.ControlSystem.set_system_mode"
+    ) as mock_fcn:
         await hass.services.async_call(
             CLIMATE_DOMAIN,
             SERVICE_TURN_ON,
@@ -263,9 +271,9 @@ async def test_ctl_turn_on(
         )
 
         try:
-            mock_fcn.assert_awaited_once_with("auto", until=None)
+            mock_fcn.assert_awaited_once_with("auto", duration=None, period=None)
         except AssertionError:
-            mock_fcn.assert_awaited_once_with("heat", until=None)
+            mock_fcn.assert_awaited_once_with("heat", duration=None, period=None)
 
         results.append(mock_fcn.await_args.args)  # type: ignore[union-attr]
 

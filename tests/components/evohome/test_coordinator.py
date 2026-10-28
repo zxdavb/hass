@@ -161,7 +161,7 @@ async def test_schedules_fetched_only_when_stale(
             SERVICE_TURN_OFF,
             {},
             "ctl_id",
-            "evohomeasync2.control_system.ControlSystem.set_mode",
+            "evohomeasync2.control_system.ControlSystem.set_system_mode",
             id="controller",
         ),
         pytest.param(

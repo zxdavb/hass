@@ -1,11 +1,18 @@
 """The tests for the native services of Evohome."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import patch
 
 from evohomeasync2 import Zone, exceptions as evo_exc
-from evohomeasync2.const import SZ_DURATION, SZ_MODE, SZ_PERIOD, SZ_SETPOINT, SZ_STATE
+from evohomeasync2.const import (
+    SZ_DURATION,
+    SZ_MODE,
+    SZ_PERIOD,
+    SZ_SETPOINT,
+    SZ_STATE,
+    SZ_TIME_UNTIL,
+)
 from freezegun.api import FrozenDateTimeFactory
 import probatio
 import pytest
@@ -89,7 +96,7 @@ async def test_set_system_mode_untargeted(hass: HomeAssistant) -> None:
     """Test untargeted set_system_mode service calls are rejected."""
 
     with (
-        patch("evohomeasync2.control_system.ControlSystem.set_mode") as mock_fcn,
+        patch("evohomeasync2.control_system.ControlSystem.set_system_mode") as mock_fcn,
         pytest.raises(probatio.Invalid),
     ):
         await hass.services.async_call(
@@ -108,12 +115,13 @@ async def test_set_system_mode_untargeted(hass: HomeAssistant) -> None:
 async def test_set_system_mode(
     hass: HomeAssistant,
     ctl_id: str,
-    freezer: FrozenDateTimeFactory,
 ) -> None:
     """Test entity-targeted set_system_mode service calls."""
 
     # EvoService.SET_SYSTEM_MODE: Auto
-    with patch("evohomeasync2.control_system.ControlSystem.set_mode") as mock_fcn:
+    with patch(
+        "evohomeasync2.control_system.ControlSystem.set_system_mode"
+    ) as mock_fcn:
         await hass.services.async_call(
             DOMAIN,
             EvoService.SET_SYSTEM_MODE,
@@ -124,12 +132,12 @@ async def test_set_system_mode(
             blocking=True,
         )
 
-        mock_fcn.assert_awaited_once_with("auto", until=None)
-
-    freezer.move_to("2024-07-10T12:00:00+00:00")
+        mock_fcn.assert_awaited_once_with("auto", duration=None, period=None)
 
     # EvoService.SET_SYSTEM_MODE: AutoWithEco, hours=12
-    with patch("evohomeasync2.control_system.ControlSystem.set_mode") as mock_fcn:
+    with patch(
+        "evohomeasync2.control_system.ControlSystem.set_system_mode"
+    ) as mock_fcn:
         await hass.services.async_call(
             DOMAIN,
             EvoService.SET_SYSTEM_MODE,
@@ -142,11 +150,13 @@ async def test_set_system_mode(
         )
 
         mock_fcn.assert_awaited_once_with(
-            "auto_with_eco", until=datetime(2024, 7, 11, 0, 0, tzinfo=UTC)
+            "auto_with_eco", duration=timedelta(hours=12), period=None
         )
 
     # EvoService.SET_SYSTEM_MODE: Away, days=7
-    with patch("evohomeasync2.control_system.ControlSystem.set_mode") as mock_fcn:
+    with patch(
+        "evohomeasync2.control_system.ControlSystem.set_system_mode"
+    ) as mock_fcn:
         await hass.services.async_call(
             DOMAIN,
             EvoService.SET_SYSTEM_MODE,
@@ -159,11 +169,13 @@ async def test_set_system_mode(
         )
 
         mock_fcn.assert_awaited_once_with(
-            "away", until=datetime(2024, 7, 16, 23, 0, tzinfo=UTC)
+            "away", duration=None, period=timedelta(days=7)
         )
 
     # entity_id in the service data, rather than as a target
-    with patch("evohomeasync2.control_system.ControlSystem.set_mode") as mock_fcn:
+    with patch(
+        "evohomeasync2.control_system.ControlSystem.set_system_mode"
+    ) as mock_fcn:
         await hass.services.async_call(
             DOMAIN,
             EvoService.SET_SYSTEM_MODE,
@@ -176,7 +188,7 @@ async def test_set_system_mode(
         )
 
         mock_fcn.assert_awaited_once_with(
-            "away", until=datetime(2024, 7, 16, 23, 0, tzinfo=UTC)
+            "away", duration=None, period=timedelta(days=7)
         )
 
 
@@ -387,6 +399,34 @@ async def test_controller_services_with_zone_id(
 
 
 @pytest.mark.parametrize("install", ["default"])
+async def test_set_system_mode_period_ends_in_location_time_zone(
+    hass: HomeAssistant,
+    ctl_id: str,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Test a period ends at midnight in the location's time zone, not in HA's."""
+
+    freezer.move_to("2024-07-10T12:00:00+00:00")
+    await hass.config.async_update(time_zone="America/New_York")
+
+    with patch("evohomeasync2.control_system.ControlSystem._set_mode") as mock_fcn:
+        await hass.services.async_call(
+            DOMAIN,
+            EvoService.SET_SYSTEM_MODE,
+            {
+                SZ_MODE: "Away",
+                SZ_PERIOD: {"days": 7},
+            },
+            target={ATTR_ENTITY_ID: ctl_id},
+            blocking=True,
+        )
+
+    # the location is in Europe/London (BST), so 7 days ends at 2024-07-17 00:00 BST
+    until = mock_fcn.await_args.args[0][SZ_TIME_UNTIL]
+    assert until == datetime(2024, 7, 16, 23, 0, tzinfo=UTC)
+
+
+@pytest.mark.parametrize("install", ["default"])
 @pytest.mark.usefixtures("evohome")
 async def test_set_system_mode_entity_not_found(
     hass: HomeAssistant,
@@ -396,7 +436,9 @@ async def test_set_system_mode_entity_not_found(
 
     non_existent_entity_id = "climate.non_existent_entity"
 
-    with patch("evohomeasync2.control_system.ControlSystem.set_mode") as mock_fcn:
+    with patch(
+        "evohomeasync2.control_system.ControlSystem.set_system_mode"
+    ) as mock_fcn:
         await hass.services.async_call(
             DOMAIN,
             EvoService.SET_SYSTEM_MODE,
@@ -457,6 +499,46 @@ async def test_set_system_mode_validator(
 
     assert exc_info.value.translation_key == expected_translation_key
     assert exc_info.value.translation_placeholders == {SZ_MODE: service_data[SZ_MODE]}
+
+
+@pytest.mark.parametrize("install", ["default"])
+@pytest.mark.parametrize(
+    "service_data",
+    [
+        pytest.param(
+            {SZ_MODE: "AutoWithEco", SZ_DURATION: {"hours": 0}}, id="zero_duration"
+        ),
+        pytest.param(
+            {SZ_MODE: "AutoWithEco", SZ_DURATION: {"minutes": 90}},
+            id="duration_resolution",
+        ),
+        pytest.param(
+            {SZ_MODE: "Away", SZ_PERIOD: {"days": 1, "hours": 12}},
+            id="period_resolution",
+        ),
+    ],
+)
+async def test_set_system_mode_rejected_by_client(
+    hass: HomeAssistant,
+    ctl_id: str,
+    service_data: dict[str, Any],
+) -> None:
+    """Test ServiceValidationError when the client rejects a duration/period."""
+
+    with (
+        patch("evohomeasync2.control_system.ControlSystem._set_mode") as mock_fcn,
+        pytest.raises(ServiceValidationError) as exc_info,
+    ):
+        await hass.services.async_call(
+            DOMAIN,
+            EvoService.SET_SYSTEM_MODE,
+            service_data,
+            target={ATTR_ENTITY_ID: ctl_id},
+            blocking=True,
+        )
+
+    assert exc_info.value.translation_key == "invalid_system_mode"
+    mock_fcn.assert_not_awaited()
 
 
 @pytest.mark.parametrize("install", ["default"])
