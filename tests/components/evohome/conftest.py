@@ -1,6 +1,7 @@
 """Fixtures and helpers for the evohome tests."""
 
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator, Callable, Generator
+from contextlib import contextmanager
 from datetime import timedelta, timezone
 from http import HTTPMethod
 from typing import Any
@@ -12,16 +13,20 @@ from freezegun.api import FrozenDateTimeFactory
 import pytest
 
 from homeassistant.components.evohome.const import DOMAIN
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
-from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
 from homeassistant.util.json import JsonArrayType, JsonObjectType
 
-from .const import ACCESS_TOKEN, REFRESH_TOKEN, SESSION_ID, USERNAME
+from .const import ACCESS_TOKEN, REFRESH_TOKEN, SESSION_ID, USER_ID, USERNAME
 
-from tests.common import load_json_array_fixture, load_json_object_fixture
+from tests.common import (
+    MockConfigEntry,
+    load_json_array_fixture,
+    load_json_object_fixture,
+)
 
 
 def user_account_config_fixture(install: str) -> JsonObjectType:
@@ -113,7 +118,7 @@ def mock_make_request(install: str) -> Callable:
             if "installationInfo" in url:  # /v2/location/installationInfo?userId={id}
                 return user_locations_config_fixture(install)
             if "status" in url:  # /v2/location/{id}/status
-                return location_status_fixture(install)
+                return location_status_fixture(install, url.split("/")[1])
 
         elif "schedule" in url:
             if url.startswith("domesticHotWater"):  # /v2/domesticHotWater/{id}/schedule
@@ -135,38 +140,54 @@ def config() -> dict[str, str]:
     }
 
 
+@pytest.fixture
+def options() -> dict[str, Any]:
+    "Return the default options of a config entry."
+    return {}
+
+
+@contextmanager
+def mock_evohome_api(install: str) -> Generator[None]:
+    """Mock the vendor's web API for a specified installation."""
+    with (
+        patch(
+            "evohomeasync2.auth.CredentialsManagerBase._post_request",
+            mock_post_request(install),
+        ),
+        patch("_evohome.auth.AbstractAuth._make_request", mock_make_request(install)),
+    ):
+        yield
+
+
 async def setup_evohome(
     hass: HomeAssistant,
     config: dict[str, str],
     install: str = "default",
+    options: dict[str, Any] | None = None,
 ) -> AsyncGenerator[MagicMock]:
     """Set up the evohome integration and return its client.
 
     The class is mocked here to check the client was instantiated with the correct args.
     """
 
-    # set the time zone as for the active evohome location
-    loc_idx: int = config.get("location_idx", 0)  # type: ignore[assignment]
-
-    try:
-        locn = user_locations_config_fixture(install)[loc_idx]
-    except IndexError:
-        if loc_idx == 0:
-            raise
-        locn = user_locations_config_fixture(install)[0]
+    # set the time zone as for the (first) evohome location
+    locn = user_locations_config_fixture(install)[0]
 
     utc_offset: int = locn["locationInfo"]["timeZone"]["currentOffsetMinutes"]  # type: ignore[assignment, call-overload, index]
     dt_util.set_default_time_zone(timezone(timedelta(minutes=utc_offset)))
 
+    config_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title=config[CONF_USERNAME],
+        data=config,
+        options=options or {},
+        unique_id=USER_ID,
+    )
+    config_entry.add_to_hass(hass)
+
     with (
-        # patch("homeassistant.components.evohome.ec1.EvohomeClient",
-        #       return_value=None),
         patch("homeassistant.components.evohome.ec2.EvohomeClient") as mock_client,
-        patch(
-            "evohomeasync2.auth.CredentialsManagerBase._post_request",
-            mock_post_request(install),
-        ),
-        patch("_evohome.auth.AbstractAuth._make_request", mock_make_request(install)),
+        mock_evohome_api(install),
     ):
         evo: EvohomeClient | None = None
 
@@ -177,8 +198,10 @@ async def setup_evohome(
 
         mock_client.side_effect = evohome_client
 
-        assert await async_setup_component(hass, DOMAIN, {DOMAIN: config})
+        assert await hass.config_entries.async_setup(config_entry.entry_id)
         await hass.async_block_till_done()
+
+        assert config_entry.state is ConfigEntryState.LOADED
 
         mock_client.assert_called_once()
 
@@ -196,6 +219,7 @@ async def setup_evohome(
 async def evohome(
     hass: HomeAssistant,
     config: dict[str, str],
+    options: dict[str, Any],
     freezer: FrozenDateTimeFactory,
     install: str,
 ) -> AsyncGenerator[MagicMock]:
@@ -203,7 +227,9 @@ async def evohome(
 
     freezer.move_to("2024-07-10T12:00:00Z")  # so schedules are as expected
 
-    async for mock_client in setup_evohome(hass, config, install=install):
+    async for mock_client in setup_evohome(
+        hass, config, install=install, options=options
+    ):
         yield mock_client
 
 

@@ -1,7 +1,35 @@
 {
+  "config": {
+    "abort": {
+      "already_configured": "[%key:common::config_flow::abort::already_configured_account%]",
+      "single_instance_allowed": "[%key:common::config_flow::abort::single_instance_allowed%]"
+    },
+    "error": {
+      "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
+      "invalid_auth": "[%key:common::config_flow::error::invalid_auth%]",
+      "no_systems": "No heating systems were found for this account.",
+      "unknown": "[%key:common::config_flow::error::unknown%]"
+    },
+    "step": {
+      "user": {
+        "data": {
+          "password": "[%key:common::config_flow::data::password%]",
+          "username": "[%key:common::config_flow::data::username%]"
+        },
+        "data_description": {
+          "password": "The password of your Total Connect Comfort account.",
+          "username": "The username (email address) of your Total Connect Comfort account."
+        },
+        "description": "All the locations of your account will be added."
+      }
+    }
+  },
   "exceptions": {
     "controller_only_service": {
       "message": "Only Evohome controllers support the `{service}` action"
+    },
+    "invalid_auth": {
+      "message": "Failed to authenticate with the vendor's server; check your username and password"
     },
     "invalid_system_mode": {
       "message": "The requested system mode is not supported: {error}"
@@ -26,6 +54,34 @@
     "deprecated_refresh_system_service": {
       "description": "The `refresh_system` action is deprecated and will stop working in Home Assistant {breaks_in_ha_version}. Instead, use the `homeassistant.update_entity` action, targeting the controller's climate entity.",
       "title": "Evohome 'Refresh system' action is deprecated"
+    },
+    "deprecated_yaml_import_issue_cannot_connect": {
+      "description": "Configuring Honeywell Total Connect Comfort (Europe) using YAML is being removed but there was an error importing your YAML configuration: unable to connect to the vendor's server. Remove the `evohome` YAML configuration from your `configuration.yaml` file, restart Home Assistant, and set up the integration manually.",
+      "title": "The Evohome YAML configuration import failed"
+    },
+    "deprecated_yaml_import_issue_invalid_auth": {
+      "description": "Configuring Honeywell Total Connect Comfort (Europe) using YAML is being removed but there was an error importing your YAML configuration: invalid credentials. Remove the `evohome` YAML configuration from your `configuration.yaml` file, restart Home Assistant, and set up the integration manually.",
+      "title": "The Evohome YAML configuration import failed"
+    },
+    "deprecated_yaml_import_issue_no_systems": {
+      "description": "Configuring Honeywell Total Connect Comfort (Europe) using YAML is being removed but there was an error importing your YAML configuration: no heating systems were found for the account. Remove the `evohome` YAML configuration from your `configuration.yaml` file, restart Home Assistant, and set up the integration manually.",
+      "title": "The Evohome YAML configuration import failed"
+    },
+    "deprecated_yaml_import_issue_unknown": {
+      "description": "Configuring Honeywell Total Connect Comfort (Europe) using YAML is being removed but there was an error importing your YAML configuration: an unknown error occurred. Remove the `evohome` YAML configuration from your `configuration.yaml` file, restart Home Assistant, and set up the integration manually.",
+      "title": "The Evohome YAML configuration import failed"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "high_precision": "Use high-precision temperatures"
+        },
+        "data_description": {
+          "high_precision": "Report the current temperatures of zones and hot water to a tenth of a degree, rather than to the nearest half (or whole) degree. Uses an additional (older) vendor API."
+        }
+      }
     }
   },
   "services": {

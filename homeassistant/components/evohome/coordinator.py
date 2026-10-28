@@ -1,10 +1,9 @@
 """Support for (EMEA/EU-based) Honeywell TCC systems."""
 
 from collections.abc import Awaitable
-from datetime import timedelta
 from http import HTTPStatus
 import logging
-from typing import Any, override
+from typing import override
 
 import evohomeasync as ec1
 import evohomeasync2 as ec2
@@ -22,27 +21,28 @@ from evohomeasync2.const import (
 )
 from evohomeasync2.typedefs import EvoLocStatusT, EvoTcsConfigResponseT
 
-from homeassistant.const import CONF_SCAN_INTERVAL
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryError
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
+from .const import DOMAIN, UPDATE_INTERVAL
 
-class EvoDataUpdateCoordinator(DataUpdateCoordinator):
+type EvoConfigEntry = ConfigEntry[EvoDataUpdateCoordinator]
+
+
+class EvoDataUpdateCoordinator(DataUpdateCoordinator[dict[str, EvoLocStatusT]]):
     """Coordinator for evohome integration/client."""
 
-    # These will not be None after _async_setup())
-    loc: ec2.Location
-    tcs: ec2.ControlSystem
+    config_entry: EvoConfigEntry
 
     def __init__(
         self,
         hass: HomeAssistant,
         logger: logging.Logger,
+        config_entry: EvoConfigEntry,
         client_v2: ec2.EvohomeClient,
         *,
-        name: str,
-        update_interval: timedelta,
-        location_idx: int,
         client_v1: ec1.EvohomeClient | None = None,
     ) -> None:
         """Class to manage fetching data."""
@@ -50,36 +50,24 @@ class EvoDataUpdateCoordinator(DataUpdateCoordinator):
         super().__init__(
             hass,
             logger,
-            config_entry=None,
-            name=name,
-            update_interval=update_interval,
+            config_entry=config_entry,
+            name=f"{DOMAIN}_coordinator",
+            update_interval=UPDATE_INTERVAL,
         )
 
         self.client = client_v2
         self.client_v1 = client_v1
 
-        self.loc_idx = location_idx
-
-        self.data: EvoLocStatusT = None  # type: ignore[assignment]
+        # the locations with a TCS (will be populated by _async_setup())
+        self.locations: list[ec2.Location] = []
         self.temps: dict[str, float | None] = {}
 
         self._first_refresh_done = False  # get schedules only after first refresh
 
-    # our version of async_config_entry_first_refresh()...
-    async def async_first_refresh(self) -> None:
-        """Refresh data for the first time when integration is setup.
-
-        This integration does not have config flow, so it is inappropriate to
-        invoke `async_config_entry_first_refresh()`.
-        """
-
-        # can't replicate `if not await self.__wrap_async_setup():` (is mangled), so...
-        if not await self._DataUpdateCoordinator__wrap_async_setup():  # type: ignore[attr-defined]
-            return
-
-        await self._async_refresh(
-            log_failures=False, raise_on_auth_failed=True, raise_on_entry_error=True
-        )
+    @property
+    def systems(self) -> list[ec2.ControlSystem]:
+        """Return the TCS of each location (each location has at most one TCS)."""
+        return [loc.tcs for loc in self.locations if loc.tcs is not None]
 
     @override
     async def _async_setup(self) -> None:
@@ -90,45 +78,46 @@ class EvoDataUpdateCoordinator(DataUpdateCoordinator):
 
         try:
             await self.client.setup()  # only config for now
+        except ec2.BadUserCredentialsError as err:
+            raise ConfigEntryError(
+                translation_domain=DOMAIN,
+                translation_key="invalid_auth",
+            ) from err
         except ec2.EvohomeError as err:
             raise UpdateFailed(err) from err
 
-        try:
-            self.loc = self.client.locations[self.loc_idx]
-        except IndexError as err:
-            raise UpdateFailed(
-                f"""
-                    Config error: 'location_idx' = {self.loc_idx},
-                    but the valid range is 0-{len(self.client.locations) - 1}.
-                    Unable to continue. Fix any configuration errors and restart HA
-                """
-            ) from err
-
-        self.tcs = self.loc.gateways[0].systems[0]
+        self.locations = [loc for loc in self.client.locations if loc.tcs is not None]
 
         if self.logger.isEnabledFor(logging.DEBUG):
-            loc_info = {
-                SZ_LOCATION_ID: self.loc.id,
-                SZ_TIME_ZONE: self.loc.config[SZ_TIME_ZONE],
-                SZ_USE_DAYLIGHT_SAVE_SWITCHING: self.loc.config[
-                    SZ_USE_DAYLIGHT_SAVE_SWITCHING
-                ],
-            }
-            tcs_info: EvoTcsConfigResponseT = {
-                **self.tcs.config,
-                SZ_ZONES: [zone.config for zone in self.tcs.zones],
-            }
-            if self.tcs.hotwater:
-                tcs_info[SZ_DHW] = self.tcs.hotwater.config
-            gwy_info = {
-                SZ_GATEWAY_ID: self.loc.gateways[0].id,
-                SZ_TEMPERATURE_CONTROL_SYSTEMS: [tcs_info],
-            }
-            config = {
-                SZ_LOCATION_INFO: loc_info,
-                SZ_GATEWAYS: [{SZ_GATEWAY_INFO: gwy_info}],
-            }
-            self.logger.debug("Config = %s", [config])
+            for loc in self.locations:
+                self._log_location_config(loc)
+
+    def _log_location_config(self, loc: ec2.Location) -> None:
+        """Log the configuration of a location (for debugging)."""
+
+        tcs = loc.tcs
+        assert tcs is not None  # mypy
+
+        loc_info = {
+            SZ_LOCATION_ID: loc.id,
+            SZ_TIME_ZONE: loc.config[SZ_TIME_ZONE],
+            SZ_USE_DAYLIGHT_SAVE_SWITCHING: loc.config[SZ_USE_DAYLIGHT_SAVE_SWITCHING],
+        }
+        tcs_info: EvoTcsConfigResponseT = {
+            **tcs.config,
+            SZ_ZONES: [zone.config for zone in tcs.zones],
+        }
+        if tcs.hotwater:
+            tcs_info[SZ_DHW] = tcs.hotwater.config
+        gwy_info = {
+            SZ_GATEWAY_ID: tcs.gateway.id,
+            SZ_TEMPERATURE_CONTROL_SYSTEMS: [tcs_info],
+        }
+        config = {
+            SZ_LOCATION_INFO: loc_info,
+            SZ_GATEWAYS: [{SZ_GATEWAY_INFO: gwy_info}],
+        }
+        self.logger.debug("Config = %s", [config])
 
     async def call_client_api[_T](
         self,
@@ -153,7 +142,7 @@ class EvoDataUpdateCoordinator(DataUpdateCoordinator):
         return result
 
     async def _update_v1_api_temps(self) -> None:
-        """Get the latest high-precision temperatures of the default Location."""
+        """Get the latest high-precision temperatures of all the Locations."""
 
         assert self.client_v1 is not None  # mypy check
 
@@ -181,36 +170,33 @@ class EvoDataUpdateCoordinator(DataUpdateCoordinator):
             self.temps = {}  # high-precision temps now considered stale
 
         else:
-            self.temps = await self.client_v1.location_by_id[
-                self.loc.id
-            ].get_temperatures(dont_update_status=True)
+            self.temps = {}
+            for loc in self.locations:
+                if (loc_v1 := self.client_v1.location_by_id.get(loc.id)) is None:
+                    continue
+                self.temps |= await loc_v1.get_temperatures(dont_update_status=True)
 
         self.logger.debug("Status (high-res temps) = %s", self.temps)
 
-    async def _update_v2_api_state(self, *args: Any) -> None:
+    async def _update_v2_api_state(self, loc: ec2.Location) -> None:
         """Get the latest modes, temperatures, setpoints of a Location."""
 
         try:
-            status = await self.loc.get_status()
+            status = await loc.get_status()
 
         except ec2.ApiCallFailedError as err:
             if err.status != HTTPStatus.TOO_MANY_REQUESTS:
                 raise UpdateFailed(err) from err
 
-            raise UpdateFailed(
-                f"""
-                    The vendor's API rate limit has been exceeded.
-                    Consider increasing the {CONF_SCAN_INTERVAL}
-                """
-            ) from err
+            raise UpdateFailed("The vendor's API rate limit has been exceeded") from err
 
         except ec2.EvohomeError as err:
             raise UpdateFailed(err) from err
 
         self.logger.debug("Status = %s", status)
 
-    async def _update_v2_schedules(self) -> None:
-        for zone in self.tcs.zones:
+    async def _update_v2_schedules(self, tcs: ec2.ControlSystem) -> None:
+        for zone in tcs.zones:
             try:
                 await zone.get_schedule()
             except ec2.InvalidScheduleError as err:
@@ -218,30 +204,32 @@ class EvoDataUpdateCoordinator(DataUpdateCoordinator):
                     "Zone '%s' has an invalid/missing schedule: %r", zone.name, err
                 )
 
-        if dhw := self.tcs.hotwater:
+        if dhw := tcs.hotwater:
             try:
                 await dhw.get_schedule()
             except ec2.InvalidScheduleError as err:
                 self.logger.warning("DHW has an invalid/missing schedule: %r", err)
 
     @override
-    async def _async_update_data(self) -> EvoLocStatusT:  # type: ignore[override]
-        """Fetch the latest state of an entire TCC Location.
+    async def _async_update_data(self) -> dict[str, EvoLocStatusT]:
+        """Fetch the latest state of all the TCC Locations.
 
-        This includes state data for a Controller and all its child devices, such as the
-        operating mode of the Controller and the current temp of its children (e.g.
+        This includes state data for each Controller and all its child devices, such as
+        the operating mode of the Controller and the current temp of its children (e.g.
         Zones, DHW controller).
         """
 
-        await self._update_v2_api_state()  # may raise UpdateFailed
+        for loc in self.locations:
+            await self._update_v2_api_state(loc)  # may raise UpdateFailed
         if self.client_v1:
             await self._update_v1_api_temps()  # will never raise UpdateFailed
 
         # to speed up HA startup, don't update entity schedules during initial
-        # async_first_refresh(), only during subsequent async_refresh()...
+        # async_config_entry_first_refresh(), only during subsequent async_refresh()...
         if self._first_refresh_done:
-            await self._update_v2_schedules()
+            for tcs in self.systems:
+                await self._update_v2_schedules(tcs)
         else:
             self._first_refresh_done = True
 
-        return self.loc.status
+        return {loc.id: loc.status for loc in self.locations}

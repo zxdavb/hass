@@ -12,7 +12,7 @@ from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.helpers import config_validation as cv, service
 from homeassistant.helpers.service import verify_domain_control
 
-from .const import DOMAIN, EVOHOME_DATA, REFRESH_BREAKS_IN_HA_VERSION, EvoService
+from .const import DOMAIN, REFRESH_BREAKS_IN_HA_VERSION, EvoService
 from .helpers import async_create_deprecation_issue_once
 
 # Controller service schemas (registered as entity services)
@@ -101,7 +101,8 @@ def async_setup_services(hass: HomeAssistant) -> None:
             "deprecated_refresh_system_service",
             REFRESH_BREAKS_IN_HA_VERSION,
         )
-        await hass.data[EVOHOME_DATA].coordinator.async_refresh()
+        for entry in hass.config_entries.async_loaded_entries(DOMAIN):
+            await entry.runtime_data.async_refresh()
 
     hass.services.async_register(DOMAIN, EvoService.REFRESH_SYSTEM, force_refresh)
 

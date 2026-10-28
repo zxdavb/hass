@@ -32,12 +32,11 @@ from homeassistant.components.climate import (
 from homeassistant.const import ATTR_TEMPERATURE, PRECISION_TENTHS, UnitOfTemperature
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, EVOHOME_DATA, EvoService
-from .coordinator import EvoDataUpdateCoordinator
+from .const import DOMAIN, EvoService
+from .coordinator import EvoConfigEntry, EvoDataUpdateCoordinator
 from .entity import EvoChild, EvoEntity, is_valid_zone, unique_zone_id
 from .helpers import as_snake_case
 
@@ -62,54 +61,50 @@ EVO_PRESET_TO_HA = {
 HA_PRESET_TO_EVO = {v: k for k, v in EVO_PRESET_TO_HA.items()}
 
 
-async def async_setup_platform(
+async def async_setup_entry(
     hass: HomeAssistant,
-    _: ConfigType,
-    async_add_entities: AddEntitiesCallback,
-    discovery_info: DiscoveryInfoType | None = None,
+    entry: EvoConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the climate platform for Evohome."""
 
-    if discovery_info is None:
-        return
+    coordinator = entry.runtime_data
+    entities: list[EvoController | EvoZone] = []
 
-    coordinator = hass.data[EVOHOME_DATA].coordinator
-    tcs = hass.data[EVOHOME_DATA].tcs
+    for tcs in coordinator.systems:
+        _LOGGER.debug(
+            "Found the Location/Controller (%s), id=%s, name=%s",
+            tcs.model,
+            tcs.id,
+            tcs.location.name,
+        )
 
-    _LOGGER.debug(
-        "Found the Location/Controller (%s), id=%s, name=%s (location_idx=%s)",
-        tcs.model,
-        tcs.id,
-        tcs.location.name,
-        coordinator.loc_idx,
-    )
+        entities.append(EvoController(coordinator, tcs))
 
-    entities: list[EvoController | EvoZone] = [EvoController(coordinator, tcs)]
+        for zone in tcs.zones:
+            if is_valid_zone(zone):
+                _LOGGER.debug(
+                    "Adding: %s (%s), id=%s, name=%s",
+                    zone.type,
+                    zone.model,
+                    zone.id,
+                    zone.name,
+                )
 
-    for zone in tcs.zones:
-        if is_valid_zone(zone):
-            _LOGGER.debug(
-                "Adding: %s (%s), id=%s, name=%s",
-                zone.type,
-                zone.model,
-                zone.id,
-                zone.name,
-            )
+                entities.append(EvoZone(coordinator, zone))
 
-            new_entity = EvoZone(coordinator, zone)
-            entities.append(new_entity)
-
-        else:
-            _LOGGER.warning(
-                (
-                    "Ignoring: %s (%s), id=%s, name=%s: unknown/invalid zone type, "
-                    "report as an issue if you feel this zone type should be supported"
-                ),
-                zone.type,
-                zone.model,
-                zone.id,
-                zone.name,
-            )
+            else:
+                _LOGGER.warning(
+                    (
+                        "Ignoring: %s (%s), id=%s, name=%s: unknown/invalid zone type, "
+                        "report as an issue if you feel this zone type should be "
+                        "supported"
+                    ),
+                    zone.type,
+                    zone.model,
+                    zone.id,
+                    zone.name,
+                )
 
     async_add_entities(entities)
 

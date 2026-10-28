@@ -6,49 +6,50 @@ others.
 Note that the API used by this integration's client does not support cooling.
 """
 
-from dataclasses import dataclass
 import logging
-from typing import Final
+from typing import Any, Final
 
 import evohomeasync as ec1
 import evohomeasync2 as ec2
 import probatio
 
+from homeassistant.config_entries import SOURCE_IMPORT
 from homeassistant.const import (
     CONF_PASSWORD,
     CONF_SCAN_INTERVAL,
     CONF_USERNAME,
     Platform,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import DOMAIN as HOMEASSISTANT_DOMAIN, HomeAssistant
+from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import config_validation as cv, issue_registry as ir
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.discovery import async_load_platform
 from homeassistant.helpers.typing import ConfigType
 
 from .const import (
+    CONF_HIGH_PRECISION,
     CONF_LOCATION_IDX,
     DOMAIN,
-    EVOHOME_DATA,
-    SCAN_INTERVAL_DEFAULT,
     SCAN_INTERVAL_MINIMUM,
+    YAML_BREAKS_IN_HA_VERSION,
 )
-from .coordinator import EvoDataUpdateCoordinator
+from .coordinator import EvoConfigEntry, EvoDataUpdateCoordinator
 from .services import async_setup_services
 from .storage import TokenManager
 
 _LOGGER = logging.getLogger(__name__)
 
+PLATFORMS: Final = [Platform.BUTTON, Platform.CLIMATE, Platform.WATER_HEATER]
+
+# location_idx & scan_interval are accepted, but ignored, so existing YAML can import
 CONFIG_SCHEMA: Final = probatio.Schema(
     {
         DOMAIN: probatio.Schema(
             {
                 probatio.Required(CONF_USERNAME): cv.string,
                 probatio.Required(probatio.Secret(CONF_PASSWORD)): cv.string,
-                probatio.Optional(CONF_LOCATION_IDX, default=0): cv.positive_int,
-                probatio.Optional(
-                    CONF_SCAN_INTERVAL, default=SCAN_INTERVAL_DEFAULT
-                ): probatio.All(
+                probatio.Optional(CONF_LOCATION_IDX): cv.positive_int,
+                probatio.Optional(CONF_SCAN_INTERVAL): probatio.All(
                     cv.time_period, probatio.Range(min=SCAN_INTERVAL_MINIMUM)
                 ),
             }
@@ -56,15 +57,6 @@ CONFIG_SCHEMA: Final = probatio.Schema(
     },
     extra=probatio.ALLOW_EXTRA,
 )
-
-
-@dataclass
-class EvoData:
-    """Dataclass for storing evohome data."""
-
-    coordinator: EvoDataUpdateCoordinator
-    loc_idx: int
-    tcs: ec2.ControlSystem
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
@@ -79,48 +71,86 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     ):
         ir.async_delete_issue(hass, DOMAIN, issue_id)
 
+    async_setup_services(hass)
+
+    if DOMAIN in config:
+        hass.async_create_task(_async_import(hass, config[DOMAIN]))
+
+    return True
+
+
+async def _async_import(hass: HomeAssistant, conf: dict[str, Any]) -> None:
+    """Import the YAML configuration and surface the appropriate repair issue."""
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": SOURCE_IMPORT},
+        data={
+            CONF_USERNAME: conf[CONF_USERNAME],
+            CONF_PASSWORD: conf[CONF_PASSWORD],
+        },
+    )
+
+    if result["type"] is FlowResultType.ABORT and result["reason"] not in (
+        "already_configured",
+        "single_instance_allowed",
+    ):
+        ir.async_create_issue(
+            hass,
+            DOMAIN,
+            f"deprecated_yaml_import_issue_{result['reason']}",
+            breaks_in_ha_version=YAML_BREAKS_IN_HA_VERSION,
+            is_fixable=False,
+            issue_domain=DOMAIN,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key=f"deprecated_yaml_import_issue_{result['reason']}",
+        )
+        return
+
+    ir.async_create_issue(
+        hass,
+        HOMEASSISTANT_DOMAIN,
+        f"deprecated_yaml_{DOMAIN}",
+        breaks_in_ha_version=YAML_BREAKS_IN_HA_VERSION,
+        is_fixable=False,
+        issue_domain=DOMAIN,
+        severity=ir.IssueSeverity.WARNING,
+        translation_key="deprecated_yaml",
+        translation_placeholders={
+            "domain": DOMAIN,
+            "integration_title": "Honeywell Total Connect Comfort (Europe)",
+        },
+    )
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: EvoConfigEntry) -> None:
+    """Set up Evohome from a config entry."""
+
     token_manager = TokenManager(
         hass,
-        config[DOMAIN][CONF_USERNAME],
-        config[DOMAIN][CONF_PASSWORD],
+        entry.data[CONF_USERNAME],
+        entry.data[CONF_PASSWORD],
         async_get_clientsession(hass),
     )
     coordinator = EvoDataUpdateCoordinator(
         hass,
         _LOGGER,
+        entry,
         ec2.EvohomeClient(token_manager),
-        name=f"{DOMAIN}_coordinator",
-        update_interval=config[DOMAIN][CONF_SCAN_INTERVAL],
-        location_idx=config[DOMAIN][CONF_LOCATION_IDX],
-        client_v1=ec1.EvohomeClient(token_manager),
+        client_v1=(
+            ec1.EvohomeClient(token_manager)
+            if entry.options.get(CONF_HIGH_PRECISION)
+            else None
+        ),
     )
 
-    await coordinator.async_register_shutdown()
-    await coordinator.async_first_refresh()
+    await coordinator.async_config_entry_first_refresh()
 
-    if not coordinator.last_update_success:
-        _LOGGER.error(f"Failed to fetch initial data: {coordinator.last_exception}")  # noqa: G004
-        return False
+    entry.runtime_data = coordinator
 
-    assert coordinator.tcs is not None  # mypy
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    hass.data[EVOHOME_DATA] = EvoData(
-        coordinator=coordinator,
-        loc_idx=coordinator.loc_idx,
-        tcs=coordinator.tcs,
-    )
 
-    hass.async_create_task(
-        async_load_platform(hass, Platform.CLIMATE, DOMAIN, {}, config)
-    )
-    hass.async_create_task(
-        async_load_platform(hass, Platform.BUTTON, DOMAIN, {}, config)
-    )
-    if coordinator.tcs.hotwater:
-        hass.async_create_task(
-            async_load_platform(hass, Platform.WATER_HEATER, DOMAIN, {}, config)
-        )
-
-    async_setup_services(hass)
-
-    return True
+async def async_unload_entry(hass: HomeAssistant, entry: EvoConfigEntry) -> None:
+    """Unload an Evohome config entry."""
+    await hass.config_entries.async_unload_platforms_or_raise(entry, PLATFORMS)

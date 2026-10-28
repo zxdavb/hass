@@ -7,37 +7,32 @@ import evohomeasync2 as evo
 from homeassistant.components.button import ButtonEntity
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import EVOHOME_DATA
-from .coordinator import EvoDataUpdateCoordinator
+from .coordinator import EvoConfigEntry, EvoDataUpdateCoordinator
 from .entity import is_valid_zone, unique_zone_id
 
 
-async def async_setup_platform(
+async def async_setup_entry(
     hass: HomeAssistant,
-    _: ConfigType,
-    async_add_entities: AddEntitiesCallback,
-    discovery_info: DiscoveryInfoType | None = None,
+    entry: EvoConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the button platform for Evohome."""
 
-    if discovery_info is None:
-        return
+    coordinator = entry.runtime_data
+    entities: list[EvoResetButtonBase] = []
 
-    coordinator = hass.data[EVOHOME_DATA].coordinator
-    tcs = hass.data[EVOHOME_DATA].tcs
+    for tcs in coordinator.systems:
+        entities.append(EvoSystemResetButton(coordinator, tcs))
 
-    entities: list[EvoResetButtonBase] = [EvoSystemResetButton(coordinator, tcs)]
+        entities.extend(
+            EvoZoneResetButton(coordinator, z) for z in tcs.zones if is_valid_zone(z)
+        )
 
-    entities.extend(
-        EvoZoneResetButton(coordinator, z) for z in tcs.zones if is_valid_zone(z)
-    )
-
-    if tcs.hotwater:
-        entities.append(EvoDhwResetButton(coordinator, tcs.hotwater))
+        if tcs.hotwater:
+            entities.append(EvoDhwResetButton(coordinator, tcs.hotwater))
 
     async_add_entities(entities)
 

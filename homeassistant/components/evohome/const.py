@@ -2,23 +2,22 @@
 
 from datetime import timedelta
 from enum import StrEnum, unique
-from typing import TYPE_CHECKING, Final
-
-from homeassistant.util.hass_dict import HassKey
-
-if TYPE_CHECKING:
-    from . import EvoData
+from typing import Final
 
 DOMAIN: Final = "evohome"
-EVOHOME_DATA: HassKey[EvoData] = HassKey(DOMAIN)
 
 STORAGE_VER: Final = 1
 STORAGE_KEY: Final = DOMAIN
 
-CONF_LOCATION_IDX: Final = "location_idx"
+CONF_HIGH_PRECISION: Final = "high_precision"
 
-SCAN_INTERVAL_DEFAULT: Final = timedelta(seconds=300)
+# Only used to validate the (deprecated) YAML configuration
+CONF_LOCATION_IDX: Final = "location_idx"
 SCAN_INTERVAL_MINIMUM: Final = timedelta(seconds=60)
+
+UPDATE_INTERVAL: Final = timedelta(minutes=5)
+
+YAML_BREAKS_IN_HA_VERSION: Final = "2027.5.0"
 
 # Support for the refresh_system service is being deprecated
 REFRESH_BREAKS_IN_HA_VERSION: Final = "2027.1.0"
