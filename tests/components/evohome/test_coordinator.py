@@ -1,6 +1,5 @@
 """The tests for the evohome coordinator."""
 
-from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 from evohomeasync2 import ControlSystem, HotWater, Zone, exceptions as evo_exc
@@ -12,12 +11,7 @@ from homeassistant.components.climate import (
     DOMAIN as CLIMATE_DOMAIN,
     SERVICE_SET_TEMPERATURE,
 )
-from homeassistant.components.evohome import EvoData
-from homeassistant.components.evohome.const import (
-    DOMAIN,
-    EVOHOME_DATA,
-    SCHEDULE_MAX_AGE,
-)
+from homeassistant.components.evohome.const import EVOHOME_DATA, SCHEDULE_MAX_AGE
 from homeassistant.components.water_heater import DOMAIN as WATER_HEATER_DOMAIN
 from homeassistant.const import (
     ATTR_ENTITY_ID,
@@ -42,8 +36,9 @@ async def test_setup_platform(
 ) -> None:
     """Test entities and their states after setup of evohome."""
 
-    evo_data: EvoData = hass.data.get(DOMAIN)  # type: ignore[assignment]
-    update_interval: timedelta = evo_data.coordinator.update_interval  # type: ignore[assignment]
+    coordinator = hass.data[EVOHOME_DATA]
+    update_interval = coordinator.update_interval
+    assert update_interval is not None
 
     # confirm initial state after coordinator.async_first_refresh()...
     state = hass.states.get("climate.my_home")
@@ -93,10 +88,11 @@ async def test_high_precision_temps(
 ) -> None:
     """Test a zone uses the v1 API's temperature, if its location has a TCS."""
 
-    evo_data: EvoData = hass.data.get(DOMAIN)  # type: ignore[assignment]
-    update_interval: timedelta = evo_data.coordinator.update_interval  # type: ignore[assignment]
+    coordinator = hass.data[EVOHOME_DATA]
+    update_interval = coordinator.update_interval
+    assert update_interval is not None
 
-    evo_data.coordinator.temps = {"3432521": 99.9}  # stale, so must be replaced
+    coordinator.temps = {"3432521": 99.9}  # stale, so must be replaced
 
     with (
         patch("evohomeasync.EvohomeClient.get_status"),
@@ -124,8 +120,9 @@ async def test_schedules_fetched_only_when_stale(
 ) -> None:
     """Test schedules are re-fetched only after SCHEDULE_MAX_AGE, not every poll."""
 
-    evo_data: EvoData = hass.data.get(DOMAIN)  # type: ignore[assignment]
-    update_interval: timedelta = evo_data.coordinator.update_interval  # type: ignore[assignment]
+    coordinator = hass.data[EVOHOME_DATA]
+    update_interval = coordinator.update_interval
+    assert update_interval is not None
 
     num_children = len(tcs.zones) + (tcs.hotwater is not None)
 
@@ -238,7 +235,7 @@ async def test_failed_schedule_poll_keeps_entities_available(
 ) -> None:
     """Test a failed background schedule GET is logged (and retried), not a failure."""
 
-    update_interval = hass.data[EVOHOME_DATA].coordinator.update_interval
+    update_interval = hass.data[EVOHOME_DATA].update_interval
     assert update_interval is not None
 
     with patch.object(

@@ -6,7 +6,6 @@ others.
 Note that the API used by this integration's client does not support cooling.
 """
 
-from dataclasses import dataclass
 import logging
 from typing import Final
 
@@ -58,15 +57,6 @@ CONFIG_SCHEMA: Final = probatio.Schema(
 )
 
 
-@dataclass
-class EvoData:
-    """Dataclass for storing evohome data."""
-
-    coordinator: EvoDataUpdateCoordinator
-    loc_idx: int
-    tcs: ec2.ControlSystem
-
-
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the Evohome integration."""
 
@@ -102,13 +92,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         _LOGGER.error(f"Failed to fetch initial data: {coordinator.last_exception}")  # noqa: G004
         return False
 
-    assert coordinator.tcs is not None  # mypy
-
-    hass.data[EVOHOME_DATA] = EvoData(
-        coordinator=coordinator,
-        loc_idx=coordinator.loc_idx,
-        tcs=coordinator.tcs,
-    )
+    hass.data[EVOHOME_DATA] = coordinator
 
     hass.async_create_task(
         async_load_platform(hass, Platform.CLIMATE, DOMAIN, {}, config)

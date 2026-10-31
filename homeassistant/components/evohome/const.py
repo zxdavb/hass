@@ -7,10 +7,10 @@ from typing import TYPE_CHECKING, Final
 from homeassistant.util.hass_dict import HassKey
 
 if TYPE_CHECKING:
-    from . import EvoData
+    from .coordinator import EvoDataUpdateCoordinator
 
 DOMAIN: Final = "evohome"
-EVOHOME_DATA: HassKey[EvoData] = HassKey(DOMAIN)
+EVOHOME_DATA: HassKey[EvoDataUpdateCoordinator] = HassKey(DOMAIN)
 
 STORAGE_VER: Final = 1
 STORAGE_KEY: Final = DOMAIN

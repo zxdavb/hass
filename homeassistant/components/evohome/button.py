@@ -27,8 +27,8 @@ async def async_setup_platform(
     if discovery_info is None:
         return
 
-    coordinator = hass.data[EVOHOME_DATA].coordinator
-    tcs = hass.data[EVOHOME_DATA].tcs
+    coordinator = hass.data[EVOHOME_DATA]
+    tcs = coordinator.tcs
 
     entities: list[EvoResetButtonBase] = [EvoSystemResetButton(coordinator, tcs)]
 
