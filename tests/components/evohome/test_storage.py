@@ -12,9 +12,10 @@ from evohomeasync2.auth import (
 import pytest
 
 from homeassistant.components.evohome.const import DOMAIN, STORAGE_KEY, STORAGE_VER
-from homeassistant.components.evohome.storage import _TokenStoreT
+from homeassistant.components.evohome.storage import TokenManager, _TokenStoreT
 from homeassistant.const import CONF_USERNAME
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.util import dt as dt_util
 
 from .conftest import setup_evohome
@@ -49,6 +50,11 @@ TEST_STORAGE_DATA: Final[dict[str, _TokenStoreT]] = {
         SZ_SESSION_ID_EXPIRES: SESSION_ID_EXP_STR,
     },  # pyright: ignore[reportAssignmentType]
 }
+
+# caches written by older versions may have a session id, but no expiry
+TEST_STORAGE_SANS_EXPIRY: Final[_TokenStoreT] = _TEST_STORAGE_BASE | {
+    SZ_SESSION_ID: SESSION_ID
+}  # pyright: ignore[reportAssignmentType]
 
 TEST_STORAGE_NULL: Final[dict[str, _EmptyStoreT | None]] = {
     "store_is_absent": None,
@@ -176,3 +182,23 @@ async def test_auth_tokens_diff(
 
     assert (expires := data[SZ_ACCESS_TOKEN_EXPIRES]) is not None
     assert dt_util.parse_datetime(expires, raise_on_error=True) > dt_util.now()
+
+
+async def test_session_id_sans_expiry(
+    hass: HomeAssistant,
+    hass_storage: dict[str, Any],
+) -> None:
+    """Test a cached session id without an expiry is given one of 15 minutes."""
+
+    hass_storage[DOMAIN] = DOMAIN_STORAGE_ROOT | {"data": TEST_STORAGE_SANS_EXPIRY}
+
+    token_manager = TokenManager(
+        hass, USERNAME, "password", async_get_clientsession(hass)
+    )
+    await token_manager._load_cache_from_store()
+
+    assert token_manager.session_id == SESSION_ID
+    assert token_manager.access_token == ACCESS_TOKEN
+
+    assert token_manager.is_session_valid()
+    assert token_manager.session_id_expires <= dt_util.utcnow() + timedelta(minutes=15)
