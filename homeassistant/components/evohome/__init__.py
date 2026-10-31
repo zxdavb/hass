@@ -119,6 +119,9 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         _LOGGER.error(f"Failed to fetch initial data: {coordinator.last_exception}")  # noqa: G004
         return False
 
+    # the location is now registered, so its high-precision temps can be fetched
+    await account.async_refresh()
+
     hass.data[EVOHOME_DATA] = coordinator
 
     hass.async_create_task(

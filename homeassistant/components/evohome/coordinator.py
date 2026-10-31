@@ -33,7 +33,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, SCHEDULE_MAX_AGE
+from .const import DOMAIN, SCAN_INTERVAL_DEFAULT, SCHEDULE_MAX_AGE
 
 type _Schedule = list[EvoDhwScheduleDayOfWeekT] | list[EvoZonScheduleDayOfWeekT]
 
@@ -65,7 +65,7 @@ class _EvoCoordinator[_DataT](DataUpdateCoordinator[_DataT]):
 class EvoAccountCoordinator(_EvoCoordinator[dict[str, float | None]]):
     """Coordinator for a TCC account: its config, and any high-precision temps.
 
-    It has no update interval of its own: the location coordinators refresh it.
+    Its update interval is fixed, and independent of the location coordinators.
     """
 
     def __init__(
@@ -84,7 +84,7 @@ class EvoAccountCoordinator(_EvoCoordinator[dict[str, float | None]]):
             logger,
             config_entry=None,
             name=name,
-            update_interval=None,
+            update_interval=SCAN_INTERVAL_DEFAULT,
         )
 
         self.client = client_v2
@@ -351,8 +351,6 @@ class EvoDataUpdateCoordinator(_EvoCoordinator[EvoLocStatusT]):
         """
 
         await self._update_v2_api_state()  # may raise UpdateFailed
-        if self.high_precision:
-            await self.account.async_refresh()  # will never raise UpdateFailed
 
         # to speed up HA startup, don't update entity schedules during initial
         # async_first_refresh(), only during subsequent async_refresh()...

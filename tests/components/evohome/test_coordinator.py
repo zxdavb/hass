@@ -12,7 +12,11 @@ from homeassistant.components.climate import (
     DOMAIN as CLIMATE_DOMAIN,
     SERVICE_SET_TEMPERATURE,
 )
-from homeassistant.components.evohome.const import EVOHOME_DATA, SCHEDULE_MAX_AGE
+from homeassistant.components.evohome.const import (
+    EVOHOME_DATA,
+    SCAN_INTERVAL_DEFAULT,
+    SCHEDULE_MAX_AGE,
+)
 from homeassistant.components.water_heater import DOMAIN as WATER_HEATER_DOMAIN
 from homeassistant.const import (
     ATTR_ENTITY_ID,
@@ -114,22 +118,60 @@ async def test_high_precision_temps(
 
 @pytest.mark.parametrize("install", ["default"])
 @pytest.mark.usefixtures("evohome")
-async def test_high_precision_temps_fetched_once_per_refresh(
+async def test_high_precision_temps_fetched_once_per_interval(
     hass: HomeAssistant,
     freezer: FrozenDateTimeFactory,
 ) -> None:
-    """Test the account fetches the v1 status once per refresh of the location."""
-
-    coordinator = hass.data[EVOHOME_DATA]
-    update_interval = coordinator.update_interval
-    assert update_interval is not None
+    """Test the account fetches the v1 status once per its (fixed) interval."""
 
     with patch("evohomeasync.EvohomeClient.get_status") as mock_get_status:
-        freezer.tick(update_interval)
+        freezer.tick(SCAN_INTERVAL_DEFAULT)
         async_fire_time_changed(hass)
         await hass.async_block_till_done()
 
     mock_get_status.assert_awaited_once()
+
+
+@pytest.mark.parametrize("install", ["default"])
+@pytest.mark.usefixtures("evohome")
+async def test_location_refresh_does_not_fetch_high_precision_temps(
+    hass: HomeAssistant,
+) -> None:
+    """Test a (manual) refresh of the location does not refresh the account."""
+
+    with patch("evohomeasync.EvohomeClient.get_status") as mock_get_status:
+        await hass.data[EVOHOME_DATA].async_refresh()
+        await hass.async_block_till_done()
+
+    mock_get_status.assert_not_awaited()
+
+
+@pytest.mark.parametrize("install", ["default"])
+@pytest.mark.usefixtures("evohome")
+async def test_account_refresh_updates_zone_state(
+    hass: HomeAssistant,
+    tcs: ControlSystem,
+    zone_id: str,
+) -> None:
+    """Test a refresh of the account (only) updates the state of a zone."""
+
+    zone = tcs.zones[0]
+    v1_tcs = MagicMock(get_temperatures=AsyncMock(return_value={zone.id: 19.8}))
+
+    with (
+        patch("evohomeasync.EvohomeClient.get_status"),
+        patch(
+            "evohomeasync.EvohomeClient.location_by_id",
+            new_callable=PropertyMock,
+            return_value={tcs.location.id: MagicMock(tcs=v1_tcs)},
+        ),
+    ):
+        await hass.data[EVOHOME_DATA].account.async_refresh()
+        await hass.async_block_till_done()
+
+    state = hass.states.get(zone_id)
+    assert state is not None
+    assert state.attributes["current_temperature"] == 19.8
 
 
 @pytest.mark.parametrize("install", ["default"])

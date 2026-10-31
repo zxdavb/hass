@@ -119,6 +119,16 @@ class EvoChild(EvoEntity):
 
         self._setpoints: dict[str, Any] = {}
 
+    @override
+    async def async_added_to_hass(self) -> None:
+        """Also listen to the account coordinator, for any high-precision temps."""
+        await super().async_added_to_hass()
+
+        if self.coordinator.high_precision:
+            self.async_on_remove(
+                self.coordinator.account.async_add_listener(self.async_write_ha_state)
+            )
+
     @property
     def native_current_temperature(self) -> float | None:
         """Return the current temperature of a Zone."""
