@@ -77,11 +77,11 @@ async def async_setup_platform(
     tcs = coordinator.tcs
 
     _LOGGER.debug(
-        "Found the Location/Controller (%s), id=%s, name=%s (location_idx=%s)",
+        "Found the Location/Controller (%s), id=%s, name=%s (location_id=%s)",
         tcs.model,
         tcs.id,
         tcs.location.name,
-        coordinator.loc_idx,
+        coordinator.location_id,
     )
 
     entities: list[EvoController | EvoZone] = [EvoController(coordinator, tcs)]
@@ -165,7 +165,7 @@ class EvoZone(EvoChild, EvoClimateEntity):
 
         self._attr_unique_id = unique_zone_id(evo_device)
 
-        if coordinator.client_v1:
+        if coordinator.high_precision:
             self._attr_precision = PRECISION_TENTHS
         else:
             self._attr_precision = self._evo_device.setpoint_capabilities[

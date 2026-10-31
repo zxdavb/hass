@@ -42,44 +42,8 @@ _ERR_SCHEDULE_UPDATE: Final = (
 )
 
 
-class EvoDataUpdateCoordinator(DataUpdateCoordinator[EvoLocStatusT]):
-    """Coordinator for evohome integration/client."""
-
-    # These will not be None after _async_setup())
-    loc: ec2.Location
-    tcs: ec2.ControlSystem
-
-    def __init__(
-        self,
-        hass: HomeAssistant,
-        logger: logging.Logger,
-        client_v2: ec2.EvohomeClient,
-        *,
-        name: str,
-        update_interval: timedelta,
-        location_idx: int,
-        client_v1: ec1.EvohomeClient | None = None,
-    ) -> None:
-        """Class to manage fetching data."""
-
-        super().__init__(
-            hass,
-            logger,
-            config_entry=None,
-            name=name,
-            update_interval=update_interval,
-        )
-
-        self.client = client_v2
-        self.client_v1 = client_v1
-
-        self.loc_idx = location_idx
-
-        self.data: EvoLocStatusT = None  # type: ignore[assignment]
-        self.temps: dict[str, float | None] = {}
-
-        self._first_refresh_done = False  # get schedules only after first refresh
-        self._schedules_fetched: dict[str, datetime] = {}  # by DHW/zone id
+class _EvoCoordinator[_DataT](DataUpdateCoordinator[_DataT]):
+    """Base for the evohome coordinators, which have no config entry (yet)."""
 
     # our version of async_config_entry_first_refresh()...
     async def async_first_refresh(self) -> None:
@@ -97,6 +61,42 @@ class EvoDataUpdateCoordinator(DataUpdateCoordinator[EvoLocStatusT]):
             log_failures=False, raise_on_auth_failed=True, raise_on_entry_error=True
         )
 
+
+class EvoAccountCoordinator(_EvoCoordinator[dict[str, float | None]]):
+    """Coordinator for a TCC account: its config, and any high-precision temps.
+
+    It has no update interval of its own: the location coordinators refresh it.
+    """
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        logger: logging.Logger,
+        client_v2: ec2.EvohomeClient,
+        *,
+        name: str,
+        client_v1: ec1.EvohomeClient | None = None,
+    ) -> None:
+        """Class to manage fetching the account's data."""
+
+        super().__init__(
+            hass,
+            logger,
+            config_entry=None,
+            name=name,
+            update_interval=None,
+        )
+
+        self.client = client_v2
+        self.client_v1 = client_v1
+
+        self.data: dict[str, float | None] = {}
+        self._location_ids: set[str] = set()  # those that use the high-res temps
+
+    def add_location(self, location_id: str) -> None:
+        """Register a location whose high-precision temps are to be fetched."""
+        self._location_ids.add(location_id)
+
     @override
     async def _async_setup(self) -> None:
         """Set up the coordinator.
@@ -109,16 +109,105 @@ class EvoDataUpdateCoordinator(DataUpdateCoordinator[EvoLocStatusT]):
         except ec2.EvohomeError as err:
             raise UpdateFailed(err) from err
 
+    @override
+    async def _async_update_data(self) -> dict[str, float | None]:
+        """Fetch the latest high-precision temps of the registered locations.
+
+        Never raises UpdateFailed: the v2 temps are used if these are unavailable.
+        """
+
+        if self.client_v1 is None or not self._location_ids:
+            return {}
+
         try:
-            self.loc = self.client.locations[self.loc_idx]
-        except IndexError as err:
-            raise UpdateFailed(
-                f"""
-                    Config error: 'location_idx' = {self.loc_idx},
-                    but the valid range is 0-{len(self.client.locations) - 1}.
-                    Unable to continue. Fix any configuration errors and restart HA
-                """
-            ) from err
+            await self.client_v1.get_status()
+
+        except ec1.BadUserCredentialsError as err:
+            self.logger.warning(
+                (
+                    "Unable to obtain high-precision temperatures. "
+                    "The feature will be disabled until next restart: %r"
+                ),
+                err,
+            )
+            self.client_v1 = None
+            temps: dict[str, float | None] = {}
+
+        except ec1.EvohomeError as err:
+            self.logger.warning(
+                (
+                    "Unable to obtain the latest high-precision temperatures. "
+                    "They will be ignored this refresh cycle: %r"
+                ),
+                err,
+            )
+            temps = {}  # high-precision temps now considered stale
+
+        else:
+            temps = {}
+            for location_id in self._location_ids:
+                if tcs := self.client_v1.location_by_id[location_id].tcs:
+                    temps |= await tcs.get_temperatures(dont_update_status=True)
+
+        self.logger.debug("Status (high-res temps) = %s", temps)
+        return temps
+
+
+class EvoDataUpdateCoordinator(_EvoCoordinator[EvoLocStatusT]):
+    """Coordinator for a TCC location (its TCS, zones, and any DHW)."""
+
+    # These will not be None after _async_setup())
+    loc: ec2.Location
+    tcs: ec2.ControlSystem
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        logger: logging.Logger,
+        account: EvoAccountCoordinator,
+        *,
+        name: str,
+        update_interval: timedelta,
+        location_id: str,
+    ) -> None:
+        """Class to manage fetching a location's data."""
+
+        super().__init__(
+            hass,
+            logger,
+            config_entry=None,
+            name=name,
+            update_interval=update_interval,
+        )
+
+        self.account = account
+        self.location_id = location_id
+
+        self.data: EvoLocStatusT = None  # type: ignore[assignment]
+
+        self._first_refresh_done = False  # get schedules only after first refresh
+        self._schedules_fetched: dict[str, datetime] = {}  # by DHW/zone id
+
+        account.add_location(location_id)
+
+    @property
+    def high_precision(self) -> bool:
+        """Return True if high-precision temps are (still) enabled."""
+        return self.account.client_v1 is not None
+
+    @property
+    def temps(self) -> dict[str, float | None]:
+        """Return the latest high-precision temps (empty if there are none)."""
+        return self.account.data
+
+    @override
+    async def _async_setup(self) -> None:
+        """Set up the coordinator.
+
+        The account coordinator has already fetched the configuration of the location.
+        """
+
+        self.loc = self.account.client.location_by_id[self.location_id]
 
         if (tcs := self.loc.tcs) is None:
             raise UpdateFailed(f"Config error: location {self.loc.id} has no TCS")
@@ -176,42 +265,6 @@ class EvoDataUpdateCoordinator(DataUpdateCoordinator[EvoLocStatusT]):
             await self.async_request_refresh()  # hass.async_create_task() won't help
 
         return result
-
-    async def _update_v1_api_temps(self) -> None:
-        """Get the latest high-precision temperatures of the default Location."""
-
-        assert self.client_v1 is not None  # mypy check
-
-        try:
-            await self.client_v1.get_status()
-
-        except ec1.BadUserCredentialsError as err:
-            self.logger.warning(
-                (
-                    "Unable to obtain high-precision temperatures. "
-                    "The feature will be disabled until next restart: %r"
-                ),
-                err,
-            )
-            self.client_v1 = None
-
-        except ec1.EvohomeError as err:
-            self.logger.warning(
-                (
-                    "Unable to obtain the latest high-precision temperatures. "
-                    "They will be ignored this refresh cycle: %r"
-                ),
-                err,
-            )
-            self.temps = {}  # high-precision temps now considered stale
-
-        else:
-            tcs = self.client_v1.location_by_id[self.loc.id].tcs
-            self.temps = (
-                await tcs.get_temperatures(dont_update_status=True) if tcs else {}
-            )
-
-        self.logger.debug("Status (high-res temps) = %s", self.temps)
 
     async def _update_v2_api_state(self, *args: Any) -> None:
         """Get the latest modes, temperatures, setpoints of a Location."""
@@ -298,8 +351,8 @@ class EvoDataUpdateCoordinator(DataUpdateCoordinator[EvoLocStatusT]):
         """
 
         await self._update_v2_api_state()  # may raise UpdateFailed
-        if self.client_v1:
-            await self._update_v1_api_temps()  # will never raise UpdateFailed
+        if self.high_precision:
+            await self.account.async_refresh()  # will never raise UpdateFailed
 
         # to speed up HA startup, don't update entity schedules during initial
         # async_first_refresh(), only during subsequent async_refresh()...

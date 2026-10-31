@@ -32,7 +32,7 @@ from .const import (
     SCAN_INTERVAL_DEFAULT,
     SCAN_INTERVAL_MINIMUM,
 )
-from .coordinator import EvoDataUpdateCoordinator
+from .coordinator import EvoAccountCoordinator, EvoDataUpdateCoordinator
 from .services import async_setup_services
 from .storage import TokenManager
 
@@ -75,14 +75,41 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         config[DOMAIN][CONF_PASSWORD],
         async_get_clientsession(hass),
     )
-    coordinator = EvoDataUpdateCoordinator(
+    account = EvoAccountCoordinator(
         hass,
         _LOGGER,
         ec2.EvohomeClient(token_manager),
+        name=f"{DOMAIN}_account",
+        client_v1=ec1.EvohomeClient(token_manager),
+    )
+
+    await account.async_register_shutdown()
+    await account.async_first_refresh()
+
+    if not account.last_update_success:
+        _LOGGER.error(f"Failed to fetch initial data: {account.last_exception}")  # noqa: G004
+        return False
+
+    locations = account.client.locations
+    location_idx: int = config[DOMAIN][CONF_LOCATION_IDX]
+
+    if location_idx >= len(locations):
+        _LOGGER.error(
+            "Failed to fetch initial data: Config error: 'location_idx' = %s, "
+            "but the valid range is 0-%s. Unable to continue. "
+            "Fix any configuration errors and restart HA",
+            location_idx,
+            len(locations) - 1,
+        )
+        return False
+
+    coordinator = EvoDataUpdateCoordinator(
+        hass,
+        _LOGGER,
+        account,
         name=f"{DOMAIN}_coordinator",
         update_interval=config[DOMAIN][CONF_SCAN_INTERVAL],
-        location_idx=config[DOMAIN][CONF_LOCATION_IDX],
-        client_v1=ec1.EvohomeClient(token_manager),
+        location_id=locations[location_idx].id,
     )
 
     await coordinator.async_register_shutdown()

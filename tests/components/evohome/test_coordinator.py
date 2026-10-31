@@ -2,6 +2,7 @@
 
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
+import evohomeasync as ec1
 from evohomeasync2 import ControlSystem, HotWater, Zone, exceptions as evo_exc
 from freezegun.api import FrozenDateTimeFactory
 import pytest
@@ -92,7 +93,7 @@ async def test_high_precision_temps(
     update_interval = coordinator.update_interval
     assert update_interval is not None
 
-    coordinator.temps = {"3432521": 99.9}  # stale, so must be replaced
+    coordinator.account.data = {"3432521": 99.9}  # stale, so must be replaced
 
     with (
         patch("evohomeasync.EvohomeClient.get_status"),
@@ -109,6 +110,89 @@ async def test_high_precision_temps(
     state = hass.states.get(zone_id)
     assert state is not None
     assert state.attributes["current_temperature"] == expected
+
+
+@pytest.mark.parametrize("install", ["default"])
+@pytest.mark.usefixtures("evohome")
+async def test_high_precision_temps_fetched_once_per_refresh(
+    hass: HomeAssistant,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Test the account fetches the v1 status once per refresh of the location."""
+
+    coordinator = hass.data[EVOHOME_DATA]
+    update_interval = coordinator.update_interval
+    assert update_interval is not None
+
+    with patch("evohomeasync.EvohomeClient.get_status") as mock_get_status:
+        freezer.tick(update_interval)
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done()
+
+    mock_get_status.assert_awaited_once()
+
+
+@pytest.mark.parametrize("install", ["default"])
+@pytest.mark.parametrize(
+    ("exception", "high_precision"),
+    [
+        pytest.param(ec1.EvohomeError("Failed"), True, id="evohome_error"),
+        pytest.param(
+            ec1.BadUserCredentialsError("Bad credentials"),
+            False,
+            id="bad_credentials",
+        ),
+    ],
+)
+@pytest.mark.usefixtures("evohome")
+async def test_high_precision_temps_failure(
+    hass: HomeAssistant,
+    freezer: FrozenDateTimeFactory,
+    tcs: ControlSystem,
+    zone_id: str,
+    exception: Exception,
+    high_precision: bool,
+) -> None:
+    """Test a v1 failure leaves the entities available, using the v2 temps."""
+
+    coordinator = hass.data[EVOHOME_DATA]
+    update_interval = coordinator.update_interval
+    assert update_interval is not None
+
+    with patch("evohomeasync.EvohomeClient.get_status", side_effect=exception):
+        freezer.tick(update_interval)
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done()
+
+    assert coordinator.high_precision is high_precision
+
+    state = hass.states.get(zone_id)
+    assert state is not None and state.state != STATE_UNAVAILABLE
+    assert state.attributes["current_temperature"] == tcs.zones[0].temperature
+
+
+@pytest.mark.parametrize("install", ["default"])
+@pytest.mark.usefixtures("evohome")
+async def test_high_precision_disabled_after_bad_credentials(
+    hass: HomeAssistant,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Test the v1 status is not fetched again once the credentials are rejected."""
+
+    coordinator = hass.data[EVOHOME_DATA]
+    update_interval = coordinator.update_interval
+    assert update_interval is not None
+
+    with patch(
+        "evohomeasync.EvohomeClient.get_status",
+        side_effect=ec1.BadUserCredentialsError("Bad credentials"),
+    ) as mock_get_status:
+        for _ in range(2):
+            freezer.tick(update_interval)
+            async_fire_time_changed(hass)
+            await hass.async_block_till_done()
+
+    mock_get_status.assert_awaited_once()
 
 
 @pytest.mark.parametrize("install", TEST_INSTALLS)

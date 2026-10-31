@@ -15,7 +15,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.setup import async_setup_component
 
-from .conftest import mock_post_request, setup_evohome
+from .conftest import mock_make_request, mock_post_request, setup_evohome
 from .const import USERNAME
 
 _MSG_429 = (
@@ -170,6 +170,35 @@ async def test_client_request_failure_v2(
     assert result is False
 
     assert caplog.record_tuples == CLIENT_REQUEST_TESTS[exception]
+
+
+async def test_location_idx_out_of_range(
+    hass: HomeAssistant,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test setup fails if location_idx is beyond the account's locations."""
+
+    config = {CONF_USERNAME: USERNAME, CONF_PASSWORD: "password", "location_idx": 1}
+
+    with (
+        patch(
+            "evohomeasync2.auth.CredentialsManagerBase._post_request",
+            mock_post_request("default"),
+        ),
+        patch("_evohome.auth.AbstractAuth._make_request", mock_make_request("default")),
+        caplog.at_level(logging.ERROR),
+    ):
+        result = await async_setup_component(hass, DOMAIN, {DOMAIN: config})
+
+    assert result is False
+
+    assert (
+        "homeassistant.components.evohome",
+        logging.ERROR,
+        "Failed to fetch initial data: Config error: 'location_idx' = 1, "
+        "but the valid range is 0-0. Unable to continue. "
+        "Fix any configuration errors and restart HA",
+    ) in caplog.record_tuples
 
 
 @pytest.mark.parametrize("install", ["default"])

@@ -91,7 +91,7 @@ class EvoDHW(EvoChild, WaterHeaterEntity):
         self._attr_name = evo_device.name  # is static
 
         self._attr_precision = (
-            PRECISION_TENTHS if coordinator.client_v1 else PRECISION_WHOLE
+            PRECISION_TENTHS if coordinator.high_precision else PRECISION_WHOLE
         )
 
     async def async_set_dhw_override(
