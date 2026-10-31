@@ -22,7 +22,7 @@ from homeassistant.const import ATTR_ENTITY_ID, SERVICE_TURN_OFF, SERVICE_TURN_O
 from homeassistant.core import HomeAssistant
 
 from .conftest import setup_evohome
-from .const import TEST_INSTALLS_WITH_DHW
+from .const import TEST_INSTALLS, TEST_INSTALLS_WITH_DHW
 
 
 @pytest.mark.parametrize("install", TEST_INSTALLS_WITH_DHW)
@@ -47,6 +47,19 @@ async def test_setup_platform(
 
     for x in water_heater_states:
         assert x == snapshot(name=f"{x.entity_id}-state")
+
+
+@pytest.mark.parametrize(
+    "install", [i for i in TEST_INSTALLS if i not in TEST_INSTALLS_WITH_DHW]
+)
+@pytest.mark.usefixtures("evohome")
+async def test_setup_platform_without_dhw(
+    hass: HomeAssistant,
+) -> None:
+    """Test the platform loads, but adds no entity, for a system without DHW."""
+
+    assert "evohome.water_heater" in hass.config.components
+    assert hass.states.async_entity_ids(WATER_HEATER_DOMAIN) == []
 
 
 @pytest.mark.parametrize("install", ["default"])

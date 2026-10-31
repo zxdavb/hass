@@ -52,17 +52,13 @@ async def async_setup_platform(
         return
 
     coordinator = hass.data[EVOHOME_DATA]
-    tcs = coordinator.tcs
 
-    assert tcs.hotwater is not None  # mypy check
+    if (dhw := coordinator.tcs.hotwater) is None:
+        return
 
-    _LOGGER.debug(
-        "Adding: DhwController (%s), id=%s",
-        tcs.hotwater.type,
-        tcs.hotwater.id,
-    )
+    _LOGGER.debug("Adding: DhwController (%s), id=%s", dhw.type, dhw.id)
 
-    entity = EvoDHW(coordinator, tcs.hotwater)
+    entity = EvoDHW(coordinator, dhw)
 
     async_add_entities([entity])
 
