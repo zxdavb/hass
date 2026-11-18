@@ -18,13 +18,15 @@ from homeassistant.components.evohome.const import (
     SCAN_INTERVAL_DEFAULT,
     SCHEDULE_MAX_AGE,
 )
-from homeassistant.components.water_heater import DOMAIN as WATER_HEATER_DOMAIN
+from homeassistant.components.water_heater import (
+    DOMAIN as WATER_HEATER_DOMAIN,
+    WaterHeaterService,
+)
 from homeassistant.const import (
     ATTR_ENTITY_ID,
     ATTR_TEMPERATURE,
     CONF_SCAN_INTERVAL,
     SERVICE_TURN_OFF,
-    SERVICE_TURN_ON,
     STATE_UNAVAILABLE,
 )
 from homeassistant.core import HomeAssistant
@@ -290,7 +292,7 @@ async def test_schedules_fetched_only_when_stale(
         ),
         pytest.param(
             WATER_HEATER_DOMAIN,
-            SERVICE_TURN_ON,
+            WaterHeaterService.TURN_ON,
             {},
             "dhw_id",
             "evohomeasync2.hotwater.HotWater.set_on",
