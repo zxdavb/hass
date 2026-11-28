@@ -42,12 +42,13 @@ class TokenManager(AbstractTokenManager, AbstractSessionManager):
         """Initialise the token manager.
 
         Without the cache, the credentials are always used to log in (as a config flow
-        must check them), and the new tokens are still saved to the cache.
+        must check them), and the new tokens are saved only by save_cache_to_store().
         """
         super().__init__(*args, **kwargs)
 
         self._store: Store[_TokenStoreT] = Store(hass, STORAGE_VER, STORAGE_KEY)
         self._store_initialized = not use_cache  # True once cache loaded first time
+        self._use_cache = use_cache
 
     @override
     def _is_bad_credentials(self, data: Mapping[str, str], code: str | None) -> bool:
@@ -115,12 +116,14 @@ class TokenManager(AbstractTokenManager, AbstractSessionManager):
     @override
     async def save_access_token(self) -> None:  # an abstractmethod
         """Save the access token (and expiry dtm, refresh token) to the cache."""
-        await self.save_cache_to_store()
+        if self._use_cache:
+            await self.save_cache_to_store()
 
     @override
     async def save_session_id(self) -> None:  # an abstractmethod
         """Save the session id (and expiry dtm) to the cache."""
-        await self.save_cache_to_store()
+        if self._use_cache:
+            await self.save_cache_to_store()
 
     async def save_cache_to_store(self) -> None:
         """Save the access token (and session id, if any) to the cache.

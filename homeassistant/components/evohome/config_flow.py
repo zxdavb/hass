@@ -45,10 +45,12 @@ class _NoSystemsError(Exception):
     """The account has no location with a temperature control system."""
 
 
-async def _async_get_user_id(hass: HomeAssistant, username: str, password: str) -> str:
+async def _async_log_in(
+    hass: HomeAssistant, username: str, password: str
+) -> tuple[str, TokenManager]:
     """Log in with the credentials, and return the account's user id.
 
-    The new tokens are cached, so the config entry's setup doesn't log in again.
+    The new tokens aren't cached until the flow accepts the account.
     """
 
     token_manager = TokenManager(
@@ -61,7 +63,7 @@ async def _async_get_user_id(hass: HomeAssistant, username: str, password: str) 
     if not any(loc.tcs for loc in client.locations):
         raise _NoSystemsError
 
-    return client.user_account[SZ_USER_ID]
+    return client.user_account[SZ_USER_ID], token_manager
 
 
 class EvohomeConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -69,13 +71,17 @@ class EvohomeConfigFlow(ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
+    _token_manager: TokenManager
+
     async def _async_validate(
         self, username: str, password: str
     ) -> tuple[str | None, str | None]:
         """Check the credentials, and return the user id or the reason they failed."""
 
         try:
-            user_id = await _async_get_user_id(self.hass, username, password)
+            user_id, self._token_manager = await _async_log_in(
+                self.hass, username, password
+            )
         except ec2.BadUserCredentialsError:
             return None, "invalid_auth"
         except ec2.ApiCallFailedError, ec2.BadApiResponseError:
@@ -102,6 +108,7 @@ class EvohomeConfigFlow(ConfigFlow, domain=DOMAIN):
             if error is None:
                 await self.async_set_unique_id(user_id)
                 self._abort_if_unique_id_configured()
+                await self._token_manager.save_cache_to_store()
                 return self.async_create_entry(
                     title=user_input[CONF_USERNAME], data=user_input
                 )
@@ -126,6 +133,7 @@ class EvohomeConfigFlow(ConfigFlow, domain=DOMAIN):
 
         await self.async_set_unique_id(user_id)
         self._abort_if_unique_id_configured()
+        await self._token_manager.save_cache_to_store()
         return self.async_create_entry(
             title=import_data[CONF_USERNAME], data=import_data
         )
@@ -151,6 +159,7 @@ class EvohomeConfigFlow(ConfigFlow, domain=DOMAIN):
             if error is None:
                 await self.async_set_unique_id(user_id)
                 self._abort_if_unique_id_mismatch(reason="wrong_account")
+                await self._token_manager.save_cache_to_store()
                 return self.async_update_reload_and_abort(
                     entry, data_updates=user_input
                 )
@@ -178,6 +187,7 @@ class EvohomeConfigFlow(ConfigFlow, domain=DOMAIN):
             if error is None:
                 await self.async_set_unique_id(user_id)
                 self._abort_if_unique_id_mismatch(reason="wrong_account")
+                await self._token_manager.save_cache_to_store()
                 return self.async_update_reload_and_abort(
                     entry, title=user_input[CONF_USERNAME], data_updates=user_input
                 )

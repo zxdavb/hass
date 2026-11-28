@@ -1,5 +1,6 @@
 """The tests for the evohome config flow."""
 
+from copy import deepcopy
 from typing import Any
 from unittest.mock import PropertyMock, patch
 
@@ -19,6 +20,20 @@ from .const import USER_ID, USERNAME
 
 NEW_PASSWORD = "new_password"
 NEW_USERNAME = "new_user@gmail.com"
+
+CACHED_TOKENS: dict[str, Any] = {
+    "version": 1,
+    "minor_version": 1,
+    "key": DOMAIN,
+    "data": {
+        "username": USERNAME,
+        "refresh_token": "refresh_token",
+        "access_token": "access_token",
+        "access_token_expires": "2099-01-01T00:00:00+00:00",
+        "session_id": "session_id",
+        "session_id_expires": "2099-01-01T00:00:00+00:00",
+    },
+}
 
 FLOW_ERROR_TESTS = [
     pytest.param(
@@ -45,7 +60,9 @@ FLOW_ERROR_TESTS = [
 ]
 
 
-async def test_user_flow(hass: HomeAssistant, config: ConfigType) -> None:
+async def test_user_flow(
+    hass: HomeAssistant, hass_storage: dict[str, Any], config: ConfigType
+) -> None:
     """Test the user step creates an entry, which sets up without logging in again."""
 
     token_requests: list[str] = []
@@ -84,6 +101,7 @@ async def test_user_flow(hass: HomeAssistant, config: ConfigType) -> None:
     assert result["result"].state is ConfigEntryState.LOADED
 
     assert len(token_requests) == 1  # by the flow, as the setup used its tokens
+    assert hass_storage[DOMAIN]["data"]["username"] == USERNAME
 
 
 @pytest.mark.parametrize(("exception", "error"), FLOW_ERROR_TESTS)
@@ -214,10 +232,11 @@ async def test_reauth_flow_errors(
 
 
 async def test_reauth_flow_wrong_account(
-    hass: HomeAssistant, config: ConfigType
+    hass: HomeAssistant, hass_storage: dict[str, Any], config: ConfigType
 ) -> None:
-    """Test a reauth aborts if the credentials are of a different account."""
+    """Test a reauth aborts, without caching the tokens, if it's another account."""
 
+    hass_storage[DOMAIN] = deepcopy(CACHED_TOKENS)
     entry = mock_config_entry(config, install="h157546")  # has another user id
     entry.add_to_hass(hass)
 
@@ -231,6 +250,7 @@ async def test_reauth_flow_wrong_account(
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "wrong_account"
     assert entry.data == config
+    assert hass_storage[DOMAIN] == CACHED_TOKENS
 
 
 async def test_reconfigure_flow(hass: HomeAssistant, config: ConfigType) -> None:
@@ -291,10 +311,11 @@ async def test_reconfigure_flow_errors(
 
 
 async def test_reconfigure_flow_wrong_account(
-    hass: HomeAssistant, config: ConfigType
+    hass: HomeAssistant, hass_storage: dict[str, Any], config: ConfigType
 ) -> None:
-    """Test a reconfigure aborts if the credentials are of a different account."""
+    """Test a reconfigure aborts, without caching the tokens, if it's another account."""
 
+    hass_storage[DOMAIN] = deepcopy(CACHED_TOKENS)
     entry = mock_config_entry(config, install="h157546")  # has another user id
     entry.add_to_hass(hass)
 
@@ -309,3 +330,4 @@ async def test_reconfigure_flow_wrong_account(
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "wrong_account"
     assert entry.data == config
+    assert hass_storage[DOMAIN] == CACHED_TOKENS
