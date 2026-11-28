@@ -390,7 +390,9 @@ class EvoController(EvoClimateEntity):
         Controllers do not have a current temp, but one is expected by HA.
         """
         temps = [
-            z.temperature for z in self._evo_device.zones if z.temperature is not None
+            z.temperature
+            for z in self._evo_device.zones
+            if is_valid_zone(z) and z.temperature is not None
         ]
         return round(sum(temps) / len(temps), 1) if temps else None
 

@@ -110,7 +110,7 @@
             },
             {
               "zoneId": "3450734",
-              "temperatureStatus": { "isAvailable": false },
+              "temperatureStatus": { "temperature": 8.0, "isAvailable": true },
               "activeFaults": [],
               "setpointStatus": {
                 "targetHeatTemperature": 10.0,
